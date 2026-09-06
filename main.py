@@ -6,7 +6,7 @@ import inspect
 import mimetypes
 import urllib.request
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from PIL import Image
 
@@ -760,10 +760,12 @@ class RunningRankPlugin(Star):
 
         distance = pending["distance"]
         del self.pending_runs[key]
-        result = await self.confirm_newbie_running(event, distance)
-        yield event.plain_result(result)
+        message, llm_reply = await self.confirm_newbie_running(event, distance)
+        yield event.plain_result(message)
+        if llm_reply:
+            yield event.plain_result(llm_reply)
 
-    async def confirm_newbie_running(self, event: AstrMessageEvent, distance: float) -> str:
+    async def confirm_newbie_running(self, event: AstrMessageEvent, distance: float) -> Tuple[str, str]:
         group_id = self.get_group_id(event)
         user_id = self.get_user_id(event)
         now = datetime.now()
@@ -777,7 +779,7 @@ class RunningRankPlugin(Star):
         user = cursor.fetchone()
         if not user:
             conn.close()
-            return "❌ 用户不存在。"
+            return "❌ 用户不存在。", ""
 
         proof_path = None
         source_path = None
@@ -861,7 +863,7 @@ class RunningRankPlugin(Star):
         rule, stage, days_to_next_stage = self.get_running_rule(user["gender"], user["points_started_at"], now)
         if rule is None:
             conn.close()
-            return "❌ 该成员尚未开始积分，无法计算当前阶段规则。"
+            return "❌ 该成员尚未开始积分，无法计算当前阶段规则。", ""
 
         year, week, _ = now.isocalendar()
 
@@ -930,6 +932,8 @@ class RunningRankPlugin(Star):
         # 将当前图片交给 Agent / LLM
         # =====================================================
 
+        llm_reply = ""
+
         try:
 
             # 获取当前会话使用的模型
@@ -943,7 +947,7 @@ class RunningRankPlugin(Star):
                     "[RunningRank] 未找到当前会话的 LLM Provider"
                 )
 
-                return message
+                return message, llm_reply
 
             # 获取 Provider ID
             chat_provider_id = provider.meta().id
@@ -955,7 +959,7 @@ class RunningRankPlugin(Star):
             )
 
             if not source_path or not os.path.exists(source_path):
-                return message
+                return message, llm_reply
 
             # 调用多模态模型
             response = await self.context.llm_generate(
@@ -969,8 +973,6 @@ class RunningRankPlugin(Star):
             # 输出模型回复
             if response and response.completion_text:
                 llm_reply = str(response.completion_text).strip()
-                if llm_reply:
-                    message += f"\n\n{llm_reply}"
 
         except Exception as e:
 
@@ -979,7 +981,7 @@ class RunningRankPlugin(Star):
                 f"调用 LLM 分析跑步图片失败: {e}"
             )
 
-        return message
+        return message, llm_reply
         
     async def add_training(self, event: AstrMessageEvent, argument: str = ""):
         argument = str(argument or "").strip()
