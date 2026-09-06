@@ -1,0 +1,6 @@
+name: astrbot_plugin_running_rank
+display_name: 跑步里程排行榜
+desc: 跑步里程记录、跑步证明、日榜周榜月榜总榜以及榜首展示图片
+version: v1.3.0
+author: QingriSun
+repo: ""
