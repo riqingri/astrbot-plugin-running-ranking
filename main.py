@@ -760,10 +760,34 @@ class RunningRankPlugin(Star):
 
         distance = pending["distance"]
         del self.pending_runs[key]
-        message, llm_reply = await self.confirm_newbie_running(event, distance)
+        message, source_path = await self.confirm_newbie_running(event, distance)
         yield event.plain_result(message)
-        if llm_reply:
-            yield event.plain_result(llm_reply)
+
+        if not source_path or not os.path.exists(source_path):
+            return
+
+        try:
+            provider = self.context.get_using_provider(event.unified_msg_origin)
+            if provider is None:
+                logger.warning("[RunningRank] 未找到当前会话的 LLM Provider")
+                return
+
+            chat_provider_id = provider.meta().id
+            logger.info("[RunningRank] 准备将跑步证明图片发送给 LLM: %s", chat_provider_id)
+
+            response = await self.context.llm_generate(
+                chat_provider_id=chat_provider_id,
+                prompt="你是一个爱水群爱吐槽的跑团组织者，跑团同学发送了一张图片，请看看这张图片是否是跑步证明？如果不是，就谴责他乱发图片，简单吐槽一下图片内容；如果是，就简单分析一下图片内容，找到简单夸奖或者聊聊图片的配速和地图或者其他图片信息。回复30个字以内，禁止使用markdown语法，使回复在一个QQ消息气泡中显得自然",
+                image_urls=[source_path],
+            )
+
+            if response and response.completion_text:
+                llm_reply = str(response.completion_text).strip()
+                if llm_reply:
+                    yield event.plain_result(llm_reply)
+
+        except Exception as e:
+            logger.error("[RunningRank] 调用 LLM 分析跑步图片失败: %s", e)
 
     async def confirm_newbie_running(self, event: AstrMessageEvent, distance: float) -> Tuple[str, str]:
         group_id = self.get_group_id(event)
@@ -928,60 +952,7 @@ class RunningRankPlugin(Star):
         message += "\n\n📊 本月跑量榜\n━━━━━━━━━━━━━━\n" + month_text
         conn.close()
 
-        # =====================================================
-        # 将当前图片交给 Agent / LLM
-        # =====================================================
-
-        llm_reply = ""
-
-        try:
-
-            # 获取当前会话使用的模型
-            provider = self.context.get_using_provider(
-                event.unified_msg_origin
-            )
-
-            if provider is None:
-
-                logger.warning(
-                    "[RunningRank] 未找到当前会话的 LLM Provider"
-                )
-
-                return message, llm_reply
-
-            # 获取 Provider ID
-            chat_provider_id = provider.meta().id
-
-            logger.info(
-                "[RunningRank] "
-                f"准备将跑步证明图片发送给 LLM: "
-                f"{chat_provider_id}"
-            )
-
-            if not source_path or not os.path.exists(source_path):
-                return message, llm_reply
-
-            # 调用多模态模型
-            response = await self.context.llm_generate(
-                chat_provider_id=chat_provider_id,
-                prompt="你是一个爱水群爱吐槽的跑团组织者，跑团同学发送了一张图片，请看看这张图片是否是跑步证明？如果不是，就谴责他乱发图片，简单吐槽一下图片内容；如果是，就简单分析一下图片内容，找到简单夸奖或者聊聊图片的配速和地图或者其他图片信息。回复30个字以内，禁止使用markdown语法，使回复在一个QQ消息气泡中显得自然",
-                image_urls=[
-                    source_path
-                ]
-            )
-
-            # 输出模型回复
-            if response and response.completion_text:
-                llm_reply = str(response.completion_text).strip()
-
-        except Exception as e:
-
-            logger.error(
-                "[RunningRank] "
-                f"调用 LLM 分析跑步图片失败: {e}"
-            )
-
-        return message, llm_reply
+        return message, source_path
         
     async def add_training(self, event: AstrMessageEvent, argument: str = ""):
         argument = str(argument or "").strip()
