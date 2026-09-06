@@ -530,22 +530,60 @@ class RunningRankPlugin(Star):
             return at_user_id
         return self.extract_qq_id(argument)
 
-    def get_running_rule(self, gender: str, month: int) -> Optional[Dict]:
+    def get_running_stage(self, started_at: Optional[str], reference_time: Optional[datetime] = None) -> int:
+        if not started_at:
+            return 0
+
+        try:
+            start_time = datetime.fromisoformat(started_at)
+        except (TypeError, ValueError):
+            return 0
+
+        if reference_time is None:
+            reference_time = datetime.now()
+
+        start_week_start = start_time - timedelta(days=start_time.weekday())
+        ref_week_start = reference_time - timedelta(days=reference_time.weekday())
+        weeks_since_start = max(0, (ref_week_start - start_week_start).days // 7)
+
+        # 如果不是从周一开始积分，就把“本周”和“下一周”都算成第 1 阶段
+        if start_time.weekday() != 0 and weeks_since_start < 2:
+            days_to_next_stage = (start_week_start + timedelta(weeks=2) - reference_time).days
+            return 1, max(0, days_to_next_stage)
+
+        elapsed_weeks = max(0, (reference_time - start_time).days // 7)
+
+        if elapsed_weeks < 4:
+            return 1, 4 * 7 - (reference_time - start_time).days
+        if elapsed_weeks < 8:
+            return 2, 8 * 7 - (reference_time - start_time).days
+        if elapsed_weeks < 12:
+            return 3, 12 * 7 - (reference_time - start_time).days
+        if elapsed_weeks < 16:
+            return 4, 16 * 7 - (reference_time - start_time).days
+        return 4, 0
+
+    def get_running_rule(self, gender: str, started_at: Optional[str], reference_time: Optional[datetime] = None) -> Optional[Dict]:
+        stage, days_to_next_stage = self.get_running_stage(started_at, reference_time)
+        if stage == 0:
+            return None
+
         male_rules = {
-            9: {"distance": 4, "point1": 3, "point2": 4},
-            10: {"distance": 5, "point1": 4, "point2": 5},
-            11: {"distance": 5, "point1": 5, "point2": 6},
-            12: {"distance": 6, "point1": 5, "point2": 6},
+            1: {"distance": 4, "point1": 3, "point2": 4},
+            2: {"distance": 5, "point1": 4, "point2": 5},
+            3: {"distance": 5, "point1": 5, "point2": 6},
+            4: {"distance": 6, "point1": 5, "point2": 6},
         }
         female_rules = {
-            9: {"distance": 2, "point1": 3, "point2": 4},
-            10: {"distance": 3, "point1": 4, "point2": 5},
-            11: {"distance": 4, "point1": 5, "point2": 6},
-            12: {"distance": 4, "point1": 5, "point2": 6},
+            1: {"distance": 2, "point1": 3, "point2": 4},
+            2: {"distance": 3, "point1": 4, "point2": 5},
+            3: {"distance": 4, "point1": 5, "point2": 6},
+            4: {"distance": 4, "point1": 5, "point2": 6},
         }
+
         if gender == "female":
-            return female_rules.get(month)
-        return male_rules.get(month)
+            return female_rules.get(stage), stage, days_to_next_stage
+        return male_rules.get(stage), stage, days_to_next_stage
 
     async def join_newbie(self, event: AstrMessageEvent, gender_text: str = "男"):
         group_id = self.get_group_id(event)
@@ -634,7 +672,13 @@ class RunningRankPlugin(Star):
         conn.close()
 
         yield event.plain_result(
-            f"🎯 {user['nickname']} 开始积分！\n\n从现在开始，该成员可以使用：\n/跑步积分 距离\n\n例如：\n/跑步积分 5km"
+            f"🎯 {user['nickname']} 开始积分！\n\n"
+            f"积分阶段按“开始积分后的周龄”计算：\n"
+            f"第1阶段：0-4周\n"
+            f"第2阶段：4-8周\n"
+            f"第3阶段：8-12周\n"
+            f"第4阶段：12-16周\n\n"
+            f"从现在开始，该成员可以使用：\n/跑步积分 距离\n\n例如：\n/跑步积分 5km"
         )
 
     async def running_points_command(self, event: AstrMessageEvent, distance_text: str):
@@ -665,16 +709,16 @@ class RunningRankPlugin(Star):
             return
 
         now = datetime.now()
-        rule = self.get_running_rule(user["gender"], now.month)
+        rule, stage, days_to_next_stage = self.get_running_rule(user["gender"], user["points_started_at"], now)
         if rule is None:
             conn.close()
-            yield event.plain_result("❌ 当前不在新手任务的 9-12 月积分周期内。")
+            yield event.plain_result("❌ 该成员尚未开始积分，无法计算当前阶段规则。")
             return
 
         required_distance = rule["distance"]
         if distance < required_distance:
             conn.close()
-            yield event.plain_result(f"⚠️ 本次距离不符合要求。\n\n当前要求：{required_distance}km及以上\n你提交：{distance}km\n")
+            yield event.plain_result(f"⚠️ 你处于新手任务的第{stage}阶段，当前要求每次跑步距离至少 {required_distance}km。如果跑步距离未达到{required_distance}km，请使用 /跑步 命令跑量接龙，本次跑步记录不会计入新手任务。\n\n")
             return
 
         key = f"{group_id}:{user_id}"
@@ -682,6 +726,7 @@ class RunningRankPlugin(Star):
         conn.close()
 
         yield event.plain_result(
+            f"你处于新手任务的第{stage}阶段，距离下一阶段还有{days_to_next_stage}天\n"
             f"🏃 已提交 {distance}km 跑步任务。\n\n请在 {self.PHOTO_WAIT_SECONDS // 60} 分钟内上传跑步截图或照片。\n\n⚠️ 只有收到图片凭证后，本次跑步才会正式记录并计算积分。"
         )
 
@@ -734,6 +779,41 @@ class RunningRankPlugin(Star):
             conn.close()
             return "❌ 用户不存在。"
 
+        proof_path = None
+        source_path = None
+        try:
+            message_obj = getattr(event, "message_obj", None)
+            message_chain = getattr(message_obj, "message", None)
+            image_component = None
+
+            if message_chain:
+                for component in message_chain:
+                    if isinstance(component, Comp.Image):
+                        image_component = component
+                        break
+
+            if image_component is not None:
+                try:
+                    source_path = await image_component.convert_to_file_path()
+                except Exception as e:
+                    logger.error("[RunningRank] 获取新手任务图片失败: %s", e)
+
+                if source_path and os.path.exists(source_path):
+                    timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
+                    proof_filename = f"{group_id}_{user_id}_{timestamp}.jpg"
+                    proof_path = os.path.join(self.proofs_dir, proof_filename)
+
+                    try:
+                        success = self.compress_image(source_path, proof_path)
+                        if not success:
+                            shutil.copy2(source_path, proof_path)
+                    except Exception as e:
+                        logger.error("[RunningRank] 保存新手任务跑步证明失败: %s", e)
+                        proof_path = None
+        except Exception as e:
+            logger.warning("[RunningRank] 处理新手任务图片证明失败: %s", e)
+            proof_path = None
+
         cursor.execute("""
         INSERT INTO newbie_running_records (group_id, semester, user_id, distance, created_at)
         VALUES (?, ?, ?, ?, ?)
@@ -762,7 +842,7 @@ class RunningRankPlugin(Star):
                 distance,
                 now.isoformat(),
                 now.isoformat(),
-                None,
+                proof_path,
             )
         )
         main_conn.commit()
@@ -778,7 +858,11 @@ class RunningRankPlugin(Star):
         """, (group_id, "2026_fall", user_id, week_start.isoformat()))
         weekly_count = cursor.fetchone()["count"]
 
-        rule = self.get_running_rule(user["gender"], now.month)
+        rule, stage, days_to_next_stage = self.get_running_rule(user["gender"], user["points_started_at"], now)
+        if rule is None:
+            conn.close()
+            return "❌ 该成员尚未开始积分，无法计算当前阶段规则。"
+
         year, week, _ = now.isocalendar()
 
         cursor.execute("""
@@ -825,6 +909,7 @@ class RunningRankPlugin(Star):
             month_text = "\n".join(month_lines)
         else:
             month_text = "暂无月榜数据"
+            
 
         message = (
             f"🏃 跑步记录成功！\n\n"
@@ -834,13 +919,68 @@ class RunningRankPlugin(Star):
             f"本周积分：{new_points} 分\n"
             f"{progress}\n"
         )
+
         message += f"\n🎉 本次积分变化：+{point_change}\n" if point_change > 0 else "\n📌 本次积分变化：+0\n"
         message += "\n\n📊 新手任务积分排行榜\n━━━━━━━━━━━━━━\n" + leaderboard
         message += "\n\n"
         message += "\n\n📊 本月跑量榜\n━━━━━━━━━━━━━━\n" + month_text
         conn.close()
-        return message
 
+        # =====================================================
+        # 将当前图片交给 Agent / LLM
+        # =====================================================
+
+        try:
+
+            # 获取当前会话使用的模型
+            provider = self.context.get_using_provider(
+                event.unified_msg_origin
+            )
+
+            if provider is None:
+
+                logger.warning(
+                    "[RunningRank] 未找到当前会话的 LLM Provider"
+                )
+
+                return message
+
+            # 获取 Provider ID
+            chat_provider_id = provider.meta().id
+
+            logger.info(
+                "[RunningRank] "
+                f"准备将跑步证明图片发送给 LLM: "
+                f"{chat_provider_id}"
+            )
+
+            if not source_path or not os.path.exists(source_path):
+                return message
+
+            # 调用多模态模型
+            response = await self.context.llm_generate(
+                chat_provider_id=chat_provider_id,
+                prompt="你是一个爱水群爱吐槽的跑团组织者，跑团同学发送了一张图片，请看看这张图片是否是跑步证明？如果不是，就谴责他乱发图片，简单吐槽一下图片内容；如果是，就简单分析一下图片内容，找到简单夸奖或者聊聊图片的配速和地图或者其他图片信息。回复30个字以内，禁止使用markdown语法，使回复在一个QQ消息气泡中显得自然",
+                image_urls=[
+                    source_path
+                ]
+            )
+
+            # 输出模型回复
+            if response and response.completion_text:
+                llm_reply = str(response.completion_text).strip()
+                if llm_reply:
+                    message += f"\n\n{llm_reply}"
+
+        except Exception as e:
+
+            logger.error(
+                "[RunningRank] "
+                f"调用 LLM 分析跑步图片失败: {e}"
+            )
+
+        return message
+        
     async def add_training(self, event: AstrMessageEvent, argument: str = ""):
         argument = str(argument or "").strip()
         if argument.startswith("/"):
@@ -1168,7 +1308,12 @@ class RunningRankPlugin(Star):
             yield event.plain_result("❌ 找不到该成员的新手任务信息。")
             return
 
-        rule = self.get_running_rule(user["gender"], running_time.month)
+        rule, stage, days_to_next_stage = self.get_running_rule(user["gender"], user["points_started_at"], running_time)
+        if rule is None:
+            conn.close()
+            yield event.plain_result("❌ 该成员尚未开始积分，无法计算撤销后的阶段规则。")
+            return
+
         if weekly_count >= rule["point2"]:
             new_week_points = 2
         elif weekly_count >= rule["point1"]:
