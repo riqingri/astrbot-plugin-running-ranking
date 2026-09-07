@@ -635,51 +635,56 @@ class RunningRankPlugin(Star):
 
     async def cancel_newbie(self, event: AstrMessageEvent, argument: str = ""):
         group_id = self.get_group_id(event)
-        user_id = self.get_user_id(event)
-        key = f"{group_id}:{user_id}"
+        admin_id = self.get_user_id(event)
+
+        if not self.is_admin(group_id, admin_id):
+            yield event.plain_result("❌ 只有管理员可以撤销报名。")
+            return
+
+        target_user_id = self.get_target_user_id(event, argument)
+        if not target_user_id:
+            yield event.plain_result(
+                "❌ 请 @ 一位群友或输入 QQ 号。\n\n例如：\n/撤销报名 @张三\n或\n/撤销报名 123456789"
+            )
+            return
 
         conn = self.get_newbie_conn()
         cursor = conn.cursor()
         cursor.execute("""
         SELECT * FROM newbie_users
         WHERE group_id = ? AND semester = ? AND user_id = ?
-        """, (group_id, "2026_fall", user_id))
+        """, (group_id, "2026_fall", target_user_id))
         user = cursor.fetchone()
 
         if not user:
             conn.close()
-            self.pending_runs.pop(key, None)
-            yield event.plain_result("❌ 你还没有报名新手任务，无法撤销报名。")
+            yield event.plain_result("❌ 该成员尚未报名新手任务，无法撤销报名。")
             return
 
         cursor.execute("""
         DELETE FROM newbie_users
         WHERE group_id = ? AND semester = ? AND user_id = ?
-        """, (group_id, "2026_fall", user_id))
+        """, (group_id, "2026_fall", target_user_id))
         cursor.execute("""
         DELETE FROM newbie_running_records
         WHERE group_id = ? AND semester = ? AND user_id = ?
-        """, (group_id, "2026_fall", user_id))
+        """, (group_id, "2026_fall", target_user_id))
         cursor.execute("""
         DELETE FROM newbie_training_records
         WHERE group_id = ? AND semester = ? AND user_id = ?
-        """, (group_id, "2026_fall", user_id))
+        """, (group_id, "2026_fall", target_user_id))
         cursor.execute("""
         DELETE FROM newbie_running_points
         WHERE group_id = ? AND semester = ? AND user_id = ?
-        """, (group_id, "2026_fall", user_id))
+        """, (group_id, "2026_fall", target_user_id))
         conn.commit()
         conn.close()
 
-        self.pending_runs.pop(key, None)
+        self.pending_runs.pop(f"{group_id}:{target_user_id}", None)
 
         yield event.plain_result(
-            f"✅ 已撤销报名：{user['nickname'] or user_id}\n\n"
-            "本学期的新手任务报名、跑步记录、训练记录和积分已清空。\n"
-            "如果你想重新参加，请再次使用：\n"
-            "/加入新手任务 男\n"
-            "或\n"
-            "/加入新手任务 女"
+            f"✅ 已撤销 {user['nickname'] or target_user_id} 的报名\n\n"
+            "该成员的本学期新手任务报名、跑步记录、训练记录和积分已清空。"
         )
 
     async def start_points(self, event: AstrMessageEvent, argument: str = ""):
@@ -1448,6 +1453,7 @@ class RunningRankPlugin(Star):
         if self.is_admin(group_id, user_id):
             lines.extend([
                 "/开始积分     开始",
+                "/撤销报名     撤销",
                 "/参加训练     记录",
                 "/撤销跑步     撤销",
                 "/撤销训练     撤销",
