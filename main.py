@@ -147,6 +147,8 @@ class RunningRankPlugin(Star):
 
         self.command_map = {
             "加入新手任务": "join_newbie",
+            "撤销报名": "cancel_newbie",
+            "退出新手任务": "cancel_newbie",
             "开始积分": "start_points",
             "跑步积分": "running_points_command",
             "参加训练": "add_training",
@@ -242,6 +244,8 @@ class RunningRankPlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def handle_all_messages(self, event: AstrMessageEvent):
+        self.refresh_user_nickname_from_event(event)
+
         command_name, argument = self.parse_command(event)
         if not command_name:
             return
@@ -629,6 +633,55 @@ class RunningRankPlugin(Star):
             "管理员开始积分后，你才能使用 /跑步积分 命令。"
         )
 
+    async def cancel_newbie(self, event: AstrMessageEvent, argument: str = ""):
+        group_id = self.get_group_id(event)
+        user_id = self.get_user_id(event)
+        key = f"{group_id}:{user_id}"
+
+        conn = self.get_newbie_conn()
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT * FROM newbie_users
+        WHERE group_id = ? AND semester = ? AND user_id = ?
+        """, (group_id, "2026_fall", user_id))
+        user = cursor.fetchone()
+
+        if not user:
+            conn.close()
+            self.pending_runs.pop(key, None)
+            yield event.plain_result("❌ 你还没有报名新手任务，无法撤销报名。")
+            return
+
+        cursor.execute("""
+        DELETE FROM newbie_users
+        WHERE group_id = ? AND semester = ? AND user_id = ?
+        """, (group_id, "2026_fall", user_id))
+        cursor.execute("""
+        DELETE FROM newbie_running_records
+        WHERE group_id = ? AND semester = ? AND user_id = ?
+        """, (group_id, "2026_fall", user_id))
+        cursor.execute("""
+        DELETE FROM newbie_training_records
+        WHERE group_id = ? AND semester = ? AND user_id = ?
+        """, (group_id, "2026_fall", user_id))
+        cursor.execute("""
+        DELETE FROM newbie_running_points
+        WHERE group_id = ? AND semester = ? AND user_id = ?
+        """, (group_id, "2026_fall", user_id))
+        conn.commit()
+        conn.close()
+
+        self.pending_runs.pop(key, None)
+
+        yield event.plain_result(
+            f"✅ 已撤销报名：{user['nickname'] or user_id}\n\n"
+            "本学期的新手任务报名、跑步记录、训练记录和积分已清空。\n"
+            "如果你想重新参加，请再次使用：\n"
+            "/加入新手任务 男\n"
+            "或\n"
+            "/加入新手任务 女"
+        )
+
     async def start_points(self, event: AstrMessageEvent, argument: str = ""):
         group_id = self.get_group_id(event)
         admin_id = self.get_user_id(event)
@@ -660,7 +713,8 @@ class RunningRankPlugin(Star):
 
         if user["points_started"] == 1:
             conn.close()
-            yield event.plain_result(f"⚠️ {user['nickname']} 已经开始积分，无需重复操作。")
+            display_name = self.get_display_name(event, user["nickname"])
+            yield event.plain_result(f"⚠️ {display_name} 已经开始积分，无需重复操作。")
             return
 
         cursor.execute("""
@@ -671,8 +725,10 @@ class RunningRankPlugin(Star):
         conn.commit()
         conn.close()
 
+        display_name = self.get_display_name(event, user["nickname"])
+
         yield event.plain_result(
-            f"🎯 {user['nickname']} 开始积分！\n\n"
+            f"🎯 {display_name} 开始积分！\n\n"
             f"积分阶段按“开始积分后的周龄”计算：\n"
             f"第1阶段：0-4周\n"
             f"第2阶段：4-8周\n"
@@ -718,7 +774,7 @@ class RunningRankPlugin(Star):
         required_distance = rule["distance"]
         if distance < required_distance:
             conn.close()
-            yield event.plain_result(f"⚠️ 你处于新手任务的第{stage}阶段，当前要求每次跑步距离至少 {required_distance}km。如果跑步距离未达到{required_distance}km，请使用 /跑步 命令跑量接龙，本次跑步记录不会计入新手任务。\n\n")
+            yield event.plain_result(f"⚠️ 你处于新手任务的第{stage}阶段，当前要求每次跑步距离至少 {required_distance}km。如果跑步距离未达到{required_distance}km，请使用 /跑步 命令跑量接龙，本次跑步记录不会计入新手任务。")
             return
 
         key = f"{group_id}:{user_id}"
@@ -937,9 +993,11 @@ class RunningRankPlugin(Star):
             week_text = "暂无周榜数据"
             
 
+        display_name = self.get_display_name(event, user["nickname"])
+
         message = (
             f"🏃 跑步记录成功！\n\n"
-            f"成员：{user['nickname']}\n"
+            f"成员：{display_name}\n"
             f"本次距离：{distance}km\n"
             f"本周完成：{weekly_count} 次\n"
             f"本周积分：{new_points} 分\n"
@@ -998,7 +1056,8 @@ class RunningRankPlugin(Star):
         point_change = new_points - old_points
 
         leaderboard = self.get_newbie_leaderboard(group_id, changed_user=target_user_id, point_change=point_change)
-        message = (f"🏋️ 训练记录成功！\n\n成员：{user['nickname']}\n累计训练：{training_count} 次\n训练积分：{new_points} 分\n")
+        display_name = self.get_display_name(event, user["nickname"])
+        message = (f"🏋️ 训练记录成功！\n\n成员：{display_name}\n累计训练：{training_count} 次\n训练积分：{new_points} 分\n")
         if point_change > 0:
             message += f"\n🎉 本次积分变化：+{point_change}\n"
         else:
@@ -1050,6 +1109,45 @@ class RunningRankPlugin(Star):
         if row and row["nickname"]:
             return row["nickname"]
         return str(user_id)
+
+    def refresh_user_nickname_from_event(self, event: AstrMessageEvent) -> None:
+        try:
+            group_id = self.get_group_id(event)
+            user_id = self.get_user_id(event)
+            _, live_name, _ = self.get_user_info(event)
+            if not live_name or str(live_name) == str(user_id):
+                return
+
+            conn = self.get_newbie_conn()
+            cursor = conn.cursor()
+            cursor.execute("""
+            UPDATE newbie_users
+            SET nickname = ?
+            WHERE group_id = ?
+              AND semester = ?
+              AND user_id = ?
+              AND (nickname IS NULL OR nickname != ?)
+            """, (str(live_name), group_id, "2026_fall", str(user_id), str(live_name)))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    def get_display_name(self, event: AstrMessageEvent, fallback_name: Optional[str] = None) -> str:
+        try:
+            user_id, user_name, _ = self.get_user_info(event)
+            if user_name and user_name != user_id:
+                return str(user_name)
+        except Exception:
+            pass
+
+        if fallback_name:
+            return str(fallback_name)
+
+        try:
+            return str(event.get_sender_name())
+        except Exception:
+            return "成员"
 
     def get_admin_list(self, group_id: str) -> str:
         conn = self.get_newbie_conn()
@@ -1157,8 +1255,9 @@ class RunningRankPlugin(Star):
         stats = self.get_user_stats(group_id, user_id)
         status = "🟢 已开始积分" if user["points_started"] == 1 else "🟡 等待管理员开始积分"
         conn.close()
+        display_name = self.get_display_name(event, user["nickname"])
         yield event.plain_result(
-            f"📊 {user['nickname']} 的新手任务\n━━━━━━━━━━━━━━\n{status}\n\n"
+            f"📊 {display_name} 的新手任务\n━━━━━━━━━━━━━━\n{status}\n\n"
             f"🏃 跑步次数：{stats['running_count']}\n"
             f"🏋️ 训练次数：{stats['training_count']}\n"
             f"📌 总次数：{stats['total_count']}\n\n"
@@ -1201,7 +1300,7 @@ class RunningRankPlugin(Star):
         conn.commit()
         after_stats = self.get_user_stats(group_id, target_user_id)
         point_change = after_stats["total_points"] - before_stats["total_points"]
-        nickname = self.get_user_nickname(group_id, target_user_id)
+        nickname = self.get_display_name(event, self.get_user_nickname(group_id, target_user_id))
         leaderboard = self.get_newbie_leaderboard(group_id, changed_user=target_user_id, point_change=point_change)
         conn.close()
         yield event.plain_result(
@@ -1309,7 +1408,7 @@ class RunningRankPlugin(Star):
         conn.commit()
         after_stats = self.get_user_stats(group_id, target_user_id)
         point_change = after_stats["total_points"] - before_stats["total_points"]
-        nickname = user["nickname"]
+        nickname = self.get_display_name(event, user["nickname"])
         leaderboard = self.get_newbie_leaderboard(group_id, changed_user=target_user_id, point_change=point_change)
         conn.close()
         yield event.plain_result(
@@ -2087,24 +2186,34 @@ class RunningRankPlugin(Star):
             cursor.execute(
                 """
                 SELECT
-                    user_id,
-                    MAX(user_name),
-                    SUM(distance) AS total_distance,
-                    MIN(run_time) AS first_run_time
+                    r.user_id,
+                    (
+                        SELECT r2.user_name
+                        FROM running_records r2
+                        WHERE r2.group_id = ?
+                          AND r2.user_id = r.user_id
+                          AND r2.run_time >= ?
+                        ORDER BY r2.run_time DESC, r2.id DESC
+                        LIMIT 1
+                    ) AS user_name,
+                    SUM(r.distance) AS total_distance,
+                    MIN(r.run_time) AS first_run_time
 
-                FROM running_records
+                FROM running_records r
 
                 WHERE
-                    group_id = ?
-                    AND run_time >= ?
+                    r.group_id = ?
+                    AND r.run_time >= ?
 
-                GROUP BY user_id
+                GROUP BY r.user_id
 
                 ORDER BY
                     total_distance DESC,
                     first_run_time ASC
                 """,
                 (
+                    group_id,
+                    start_time.isoformat(),
                     group_id,
                     start_time.isoformat()
                 )
@@ -2115,23 +2224,31 @@ class RunningRankPlugin(Star):
             cursor.execute(
                 """
                 SELECT
-                    user_id,
-                    MAX(user_name),
-                    SUM(distance) AS total_distance,
-                    MIN(run_time) AS first_run_time
+                    r.user_id,
+                    (
+                        SELECT r2.user_name
+                        FROM running_records r2
+                        WHERE r2.group_id = ?
+                          AND r2.user_id = r.user_id
+                        ORDER BY r2.run_time DESC, r2.id DESC
+                        LIMIT 1
+                    ) AS user_name,
+                    SUM(r.distance) AS total_distance,
+                    MIN(r.run_time) AS first_run_time
 
-                FROM running_records
+                FROM running_records r
 
                 WHERE
-                    group_id = ?
+                    r.group_id = ?
 
-                GROUP BY user_id
+                GROUP BY r.user_id
 
                 ORDER BY
                     total_distance DESC,
                     first_run_time ASC
                 """,
                 (
+                    group_id,
                     group_id,
                 )
             )
