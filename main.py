@@ -534,40 +534,43 @@ class RunningRankPlugin(Star):
             return at_user_id
         return self.extract_qq_id(argument)
 
-    def get_running_stage(self, started_at: Optional[str], reference_time: Optional[datetime] = None) -> int:
+    def get_running_stage(self, started_at: Optional[str], reference_time: Optional[datetime] = None) -> Tuple[int, int]:
         if not started_at:
-            return 0
+            return (0, 0)
 
         try:
+            # started at means the time user started
             start_time = datetime.fromisoformat(started_at)
         except (TypeError, ValueError):
-            return 0
+            return (0, 0)
 
         if reference_time is None:
-            reference_time = datetime.now()
+            reference_time = datetime.now()  # reference time is now
 
-        start_week_start = start_time - timedelta(days=start_time.weekday())
-        ref_week_start = reference_time - timedelta(days=reference_time.weekday())
-        weeks_since_start = max(0, (ref_week_start - start_week_start).days // 7)
+        start_week_start = start_time - timedelta(days=start_time.weekday()) # start_time - start_time
 
-        # 如果不是从周一开始积分，就把“本周”和“下一周”都算成第 1 阶段
-        if start_time.weekday() != 0 and weeks_since_start < 2:
-            days_to_next_stage = (start_week_start + timedelta(weeks=2) - reference_time).days
-            return 1, max(0, days_to_next_stage)
+        # 周一开始积分：第 1 阶段就是 4 周；
+        # 非周一开始积分：本周剩余天数 + 下四周 一起算第 1 阶段
+        if start_time.weekday() == 0:
+            stage1_end = start_week_start + timedelta(weeks=4)
+        else:
+            stage1_end = start_week_start + timedelta(weeks=5)
 
-        elapsed_weeks = max(0, (reference_time - start_time).days // 7)
+        days_to_stage2 = (stage1_end - reference_time).days
+        if days_to_stage2 > 0:
+            return 1, days_to_stage2
 
-        if elapsed_weeks < 4:
-            return 1, 4 * 7 - (reference_time - start_time).days
-        if elapsed_weeks < 8:
-            return 2, 8 * 7 - (reference_time - start_time).days
-        if elapsed_weeks < 12:
-            return 3, 12 * 7 - (reference_time - start_time).days
-        if elapsed_weeks < 16:
-            return 4, 16 * 7 - (reference_time - start_time).days
+        # 第 1 阶段结束后，每 4 周一档升到第 2/3/4 阶段
+        elapsed_after_stage1 = (reference_time - stage1_end).days
+        if elapsed_after_stage1 < 4 * 7:
+            return 2, 4 * 7 - elapsed_after_stage1
+        if elapsed_after_stage1 < 8 * 7:
+            return 3, 8 * 7 - elapsed_after_stage1
+        if elapsed_after_stage1 < 12 * 7:
+            return 4, 12 * 7 - elapsed_after_stage1
         return 4, 0
 
-    def get_running_rule(self, gender: str, started_at: Optional[str], reference_time: Optional[datetime] = None) -> Optional[Dict]:
+    def get_running_rule(self, gender: str, started_at: Optional[str], reference_time: Optional[datetime] = None) -> Optional[Tuple[Optional[Dict], int, int]]:
         stage, days_to_next_stage = self.get_running_stage(started_at, reference_time)
         if stage == 0:
             return None
