@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from astrbot.api.web import json_response
+from astrbot.api.web import json_response, request
 
 
 def _int(value, default=0):
@@ -35,16 +35,16 @@ def _rows(cursor):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-async def _read_body(request):
+async def _read_body():
     """尽量把 POST body 解析成 dict（优先 JSON，退回表单）。"""
     try:
-        data = await request.json()
+        data = await request.json(default=None)
         if isinstance(data, dict):
             return data
     except Exception:
         pass
     try:
-        form = await request.post()
+        form = await request.form()
         return {k: v for k, v in form.items()}
     except Exception:
         pass
@@ -92,7 +92,7 @@ class WebApiMixin:
     # 概览 / 群列表
     # =============================================================
 
-    async def _api_overview(self, request):
+    async def _api_overview(self):
         conn = self.get_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*), COALESCE(SUM(distance), 0) FROM running_records")
@@ -121,7 +121,7 @@ class WebApiMixin:
             "newbie_training_records": counts["newbie_training_records"],
         }})
 
-    async def _api_groups(self, request):
+    async def _api_groups(self):
         groups = set()
 
         conn = self.get_conn()
@@ -147,7 +147,7 @@ class WebApiMixin:
     # 跑步记录 running_records（running.db）
     # =============================================================
 
-    async def _api_list_running_records(self, request):
+    async def _api_list_running_records(self):
         q = request.query
         where = []
         params = []
@@ -192,8 +192,8 @@ class WebApiMixin:
 
         return json_response({"status": "ok", "data": {"total": total, "rows": rows}})
 
-    async def _api_create_running_record(self, request):
-        body = await _read_body(request)
+    async def _api_create_running_record(self):
+        body = await _read_body()
         required = ["user_id", "user_name", "group_id", "distance", "run_time"]
         missing = [k for k in required if not _has(body, k)]
         if missing:
@@ -221,8 +221,8 @@ class WebApiMixin:
         conn.close()
         return json_response({"status": "ok", "data": {"id": new_id}})
 
-    async def _api_update_running_record(self, request):
-        body = await _read_body(request)
+    async def _api_update_running_record(self):
+        body = await _read_body()
         record_id = _int(body.get("id"))
         if not record_id:
             return json_response({"status": "error", "message": "缺少记录 id"})
@@ -249,8 +249,8 @@ class WebApiMixin:
         conn.close()
         return json_response({"status": "ok", "data": {"id": record_id}})
 
-    async def _api_delete_running_record(self, request):
-        body = await _read_body(request)
+    async def _api_delete_running_record(self):
+        body = await _read_body()
         record_id = _int(body.get("id"))
         if not record_id:
             return json_response({"status": "error", "message": "缺少记录 id"})
@@ -266,7 +266,7 @@ class WebApiMixin:
     # 新手用户 newbie_users（newbie_points.db）
     # =============================================================
 
-    def _query_newbie_list(self, table, keyword_columns, request):
+    def _query_newbie_list(self, table, keyword_columns):
         q = request.query
         where = []
         params = []
@@ -299,12 +299,12 @@ class WebApiMixin:
         nb.close()
         return total, rows
 
-    async def _api_list_newbie_users(self, request):
-        total, rows = self._query_newbie_list("newbie_users", ["user_id", "nickname"], request)
+    async def _api_list_newbie_users(self):
+        total, rows = self._query_newbie_list("newbie_users", ["user_id", "nickname"])
         return json_response({"status": "ok", "data": {"total": total, "rows": rows}})
 
-    async def _api_create_newbie_user(self, request):
-        body = await _read_body(request)
+    async def _api_create_newbie_user(self):
+        body = await _read_body()
         required = ["group_id", "user_id"]
         missing = [k for k in required if not _has(body, k)]
         if missing:
@@ -333,8 +333,8 @@ class WebApiMixin:
         nb.close()
         return json_response({"status": "ok", "data": {"group_id": body["group_id"], "user_id": body["user_id"]}})
 
-    async def _api_update_newbie_user(self, request):
-        body = await _read_body(request)
+    async def _api_update_newbie_user(self):
+        body = await _read_body()
         group_id = _str(body.get("group_id"))
         semester = _str(body.get("semester")) or "2026_fall"
         user_id = _str(body.get("user_id"))
@@ -364,8 +364,8 @@ class WebApiMixin:
         nb.close()
         return json_response({"status": "ok", "data": {"group_id": group_id, "user_id": user_id}})
 
-    async def _api_delete_newbie_user(self, request):
-        body = await _read_body(request)
+    async def _api_delete_newbie_user(self):
+        body = await _read_body()
         group_id = _str(body.get("group_id"))
         semester = _str(body.get("semester")) or "2026_fall"
         user_id = _str(body.get("user_id"))
@@ -386,12 +386,12 @@ class WebApiMixin:
     # 新手积分 newbie_running_points（newbie_points.db）
     # =============================================================
 
-    async def _api_list_newbie_points(self, request):
-        total, rows = self._query_newbie_list("newbie_running_points", ["user_id"], request)
+    async def _api_list_newbie_points(self):
+        total, rows = self._query_newbie_list("newbie_running_points", ["user_id"])
         return json_response({"status": "ok", "data": {"total": total, "rows": rows}})
 
-    async def _api_create_newbie_point(self, request):
-        body = await _read_body(request)
+    async def _api_create_newbie_point(self):
+        body = await _read_body()
         required = ["group_id", "user_id", "year", "week", "points"]
         missing = [k for k in required if not _has(body, k)]
         if missing:
@@ -420,8 +420,8 @@ class WebApiMixin:
         nb.close()
         return json_response({"status": "ok", "data": {"id": new_id}})
 
-    async def _api_update_newbie_point(self, request):
-        body = await _read_body(request)
+    async def _api_update_newbie_point(self):
+        body = await _read_body()
         record_id = _int(body.get("id"))
         if not record_id:
             return json_response({"status": "error", "message": "缺少记录 id"})
@@ -450,8 +450,8 @@ class WebApiMixin:
         nb.close()
         return json_response({"status": "ok", "data": {"id": record_id}})
 
-    async def _api_delete_newbie_point(self, request):
-        body = await _read_body(request)
+    async def _api_delete_newbie_point(self):
+        body = await _read_body()
         record_id = _int(body.get("id"))
         if not record_id:
             return json_response({"status": "error", "message": "缺少记录 id"})
@@ -467,12 +467,12 @@ class WebApiMixin:
     # 训练记录 newbie_training_records（newbie_points.db）
     # =============================================================
 
-    async def _api_list_newbie_training(self, request):
-        total, rows = self._query_newbie_list("newbie_training_records", ["user_id", "admin_id"], request)
+    async def _api_list_newbie_training(self):
+        total, rows = self._query_newbie_list("newbie_training_records", ["user_id", "admin_id"])
         return json_response({"status": "ok", "data": {"total": total, "rows": rows}})
 
-    async def _api_create_newbie_training(self, request):
-        body = await _read_body(request)
+    async def _api_create_newbie_training(self):
+        body = await _read_body()
         required = ["group_id", "user_id"]
         missing = [k for k in required if not _has(body, k)]
         if missing:
@@ -498,8 +498,8 @@ class WebApiMixin:
         nb.close()
         return json_response({"status": "ok", "data": {"id": new_id}})
 
-    async def _api_update_newbie_training(self, request):
-        body = await _read_body(request)
+    async def _api_update_newbie_training(self):
+        body = await _read_body()
         record_id = _int(body.get("id"))
         if not record_id:
             return json_response({"status": "error", "message": "缺少记录 id"})
@@ -525,8 +525,8 @@ class WebApiMixin:
         nb.close()
         return json_response({"status": "ok", "data": {"id": record_id}})
 
-    async def _api_delete_newbie_training(self, request):
-        body = await _read_body(request)
+    async def _api_delete_newbie_training(self):
+        body = await _read_body()
         record_id = _int(body.get("id"))
         if not record_id:
             return json_response({"status": "error", "message": "缺少记录 id"})
@@ -542,12 +542,12 @@ class WebApiMixin:
     # 管理员 newbies_admins（newbie_points.db）
     # =============================================================
 
-    async def _api_list_admins(self, request):
-        total, rows = self._query_newbie_list("newbies_admins", ["user_id"], request)
+    async def _api_list_admins(self):
+        total, rows = self._query_newbie_list("newbies_admins", ["user_id"])
         return json_response({"status": "ok", "data": {"total": total, "rows": rows}})
 
-    async def _api_create_admin(self, request):
-        body = await _read_body(request)
+    async def _api_create_admin(self):
+        body = await _read_body()
         required = ["group_id", "user_id"]
         missing = [k for k in required if not _has(body, k)]
         if missing:
@@ -570,8 +570,8 @@ class WebApiMixin:
         nb.close()
         return json_response({"status": "ok", "data": {"group_id": body["group_id"], "user_id": body["user_id"]}})
 
-    async def _api_update_admin(self, request):
-        body = await _read_body(request)
+    async def _api_update_admin(self):
+        body = await _read_body()
         group_id = _str(body.get("group_id"))
         user_id = _str(body.get("user_id"))
         if not group_id or not user_id:
@@ -587,8 +587,8 @@ class WebApiMixin:
         nb.close()
         return json_response({"status": "ok", "data": {"group_id": group_id, "user_id": user_id}})
 
-    async def _api_delete_admin(self, request):
-        body = await _read_body(request)
+    async def _api_delete_admin(self):
+        body = await _read_body()
         group_id = _str(body.get("group_id"))
         user_id = _str(body.get("user_id"))
         if not group_id or not user_id:
