@@ -1,0 +1,54 @@
+<title>用户数据管理</title>
+<link rel="stylesheet" href="./style.css">
+
+<div class="app">
+  <header class="topbar">
+    <h1>用户数据管理</h1>
+    <div class="overview" id="overview"></div>
+  </header>
+
+  <nav class="tabs" id="tabs"></nav>
+
+  <section class="toolbar">
+    <select id="groupFilter" class="input">
+      <option value="">全部群</option>
+    </select>
+    <input id="keyword" class="input grow" type="text" placeholder="搜索用户 QQ / 昵称…">
+    <button id="searchBtn" class="btn">搜索</button>
+    <button id="resetBtn" class="btn ghost">重置</button>
+    <span class="spacer"></span>
+    <button id="createBtn" class="btn primary">＋ 新增</button>
+  </section>
+
+  <section class="table-wrap">
+    <table>
+      <thead id="thead"></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="empty" id="empty" hidden>暂无数据</div>
+  </section>
+
+  <footer class="pager">
+    <span id="pageInfo"></span>
+    <button id="prevBtn" class="btn ghost">上一页</button>
+    <button id="nextBtn" class="btn ghost">下一页</button>
+  </footer>
+</div>
+
+<div class="modal-backdrop" id="modal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modalTitle">编辑</h2>
+      <button class="close" id="modalClose">×</button>
+    </div>
+    <form class="modal-body" id="modalForm"></form>
+    <div class="modal-foot">
+      <button class="btn ghost" id="modalCancel">取消</button>
+      <button class="btn primary" id="modalSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="./app.js"></script>
