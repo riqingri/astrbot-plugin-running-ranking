@@ -289,6 +289,7 @@ td.row-actions .btn {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  position: relative;
 }
 
 .field label {
@@ -335,4 +336,32 @@ td.row-actions .btn {
   font-size: 14px;
   z-index: 60;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+}
+
+.autofill {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin-top: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.autofill-item {
+  padding: 8px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.autofill-item:hover {
+  background: var(--bg);
 }

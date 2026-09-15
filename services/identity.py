@@ -28,7 +28,7 @@ class IdentityMixin:
         return self.get_user_id(event)
 
     def is_super_admin(self, user_id: str) -> bool:
-        return str(user_id) == "1929647130"
+        return str(user_id) == "3123366945"
 
     def is_admin(self, group_id: str, user_id: str) -> bool:
         if self.is_super_admin(user_id):

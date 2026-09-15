@@ -15,7 +15,7 @@
       columns: [
         { key: "id", label: "ID" },
         { key: "user_id", label: "用户 QQ" },
-        { key: "user_name", label: "昵称" },
+        { key: "user_name", label: "昵称", autofill: ["user_id", "group_id"] },
         { key: "group_id", label: "群号" },
         { key: "distance", label: "距离(km)", type: "number" },
         { key: "run_time", label: "跑步时间", type: "datetime" },
@@ -32,7 +32,7 @@
         { key: "group_id", label: "群号" },
         { key: "semester", label: "学期" },
         { key: "user_id", label: "用户 QQ" },
-        { key: "nickname", label: "昵称" },
+        { key: "nickname", label: "昵称", autofill: ["user_id", "group_id"] },
         { key: "gender", label: "性别" },
         { key: "joined_at", label: "加入时间" },
         { key: "points_started", label: "开始积分", type: "number" },
@@ -279,6 +279,62 @@
     return m ? `${m[1]}T${m[2]}` : "";
   }
 
+  function attachUserAutocomplete(input, autofillKeys) {
+    let dropdown = null;
+    let timer = null;
+    let seq = 0;
+
+    function hideDropdown() {
+      if (dropdown) {
+        dropdown.remove();
+        dropdown = null;
+      }
+    }
+
+    function applySuggestion(s) {
+      input.value = s.user_name || "";
+      autofillKeys.forEach((key) => {
+        const el = els.modalForm.querySelector(`input[data-key="${key}"]`);
+        if (el && s[key] != null) el.value = s[key];
+      });
+      hideDropdown();
+    }
+
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      const kw = input.value.trim();
+      const mySeq = ++seq;
+      if (!kw) {
+        hideDropdown();
+        return;
+      }
+      timer = setTimeout(async () => {
+        try {
+          const list = (await bridge.apiGet("suggest", { keyword: kw })) || [];
+          if (mySeq !== seq) return;
+          hideDropdown();
+          if (!list.length) return;
+          dropdown = document.createElement("div");
+          dropdown.className = "autofill";
+          list.slice(0, 20).forEach((s) => {
+            const item = document.createElement("div");
+            item.className = "autofill-item";
+            item.textContent = `${s.user_name}（QQ ${s.user_id} · 群 ${s.group_id}）`;
+            item.onclick = () => applySuggestion(s);
+            dropdown.appendChild(item);
+          });
+          input.parentElement.appendChild(dropdown);
+        } catch (e) {
+          /* 自动补全失败，静默忽略 */
+        }
+      }, 250);
+    });
+
+    input.addEventListener("blur", () => {
+      setTimeout(hideDropdown, 150);
+    });
+  }
+
   function openModal(mode, row) {
     state.editing = row ? { mode, row } : { mode };
     const c = config();
@@ -315,6 +371,13 @@
       wrap.appendChild(label);
       wrap.appendChild(input);
       els.modalForm.appendChild(wrap);
+    });
+
+    els.modalForm.querySelectorAll("input").forEach((input) => {
+      const col = c.columns.find((x) => x.key === input.dataset.key);
+      if (col && col.autofill) {
+        attachUserAutocomplete(input, col.autofill);
+      }
     });
 
     els.modal.hidden = false;

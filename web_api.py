@@ -70,6 +70,7 @@ class WebApiMixin:
         routes = [
             ("GET", f"{prefix}/overview", self._api_overview, "数据概览"),
             ("GET", f"{prefix}/groups", self._api_groups, "群列表"),
+            ("GET", f"{prefix}/suggest", self._api_suggest_users, "昵称联想用户"),
 
             ("GET", f"{prefix}/running_records", self._api_list_running_records, "跑步记录列表"),
             ("POST", f"{prefix}/running_records/create", self._api_create_running_record, "新增跑步记录"),
@@ -153,6 +154,58 @@ class WebApiMixin:
         nb.close()
 
         return json_response({"status": "ok", "data": sorted(groups)})
+
+    async def _api_suggest_users(self):
+        """按昵称模糊联想出 (QQ, 群号)，用于新增表单自动补全。"""
+        keyword = _str(request.query.get("keyword"))
+        if not keyword:
+            return json_response({"status": "ok", "data": []})
+        kw = f"%{keyword}%"
+        results = {}
+
+        conn = self.get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT user_id, user_name, group_id
+            FROM running_records
+            WHERE user_name LIKE ?
+            ORDER BY id DESC
+            """,
+            (kw,),
+        )
+        for user_id, user_name, group_id in cursor.fetchall():
+            key = (str(group_id), str(user_id))
+            if key not in results:
+                results[key] = {
+                    "user_id": str(user_id),
+                    "user_name": str(user_name),
+                    "group_id": str(group_id),
+                }
+        conn.close()
+
+        nb = self.get_newbie_conn()
+        nc = nb.cursor()
+        nc.execute(
+            """
+            SELECT user_id, nickname, group_id
+            FROM newbie_users
+            WHERE nickname LIKE ?
+            ORDER BY rowid DESC
+            """,
+            (kw,),
+        )
+        for row in nc.fetchall():
+            key = (str(row["group_id"]), str(row["user_id"]))
+            if key not in results:
+                results[key] = {
+                    "user_id": str(row["user_id"]),
+                    "user_name": str(row["nickname"] or row["user_id"]),
+                    "group_id": str(row["group_id"]),
+                }
+        nb.close()
+
+        return json_response({"status": "ok", "data": list(results.values())[:20]})
 
     # =============================================================
     # 跑步记录 running_records（running.db）
@@ -501,7 +554,7 @@ class WebApiMixin:
                 _str(body["group_id"]),
                 _str(body.get("semester")) or "2026_fall",
                 _str(body["user_id"]),
-                _str(body.get("admin_id")) or "1929647130",
+                _str(body.get("admin_id")) or "3123366945",
                 _str(body.get("created_at")) or datetime.now().isoformat(),
             ),
         )

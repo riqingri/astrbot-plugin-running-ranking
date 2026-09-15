@@ -514,12 +514,12 @@ class NewbieMixin:
         """, (group_id,))
         admin_ids = [row["user_id"] for row in cursor.fetchall()]
         conn.close()
-        if "1929647130" not in admin_ids:
-            admin_ids.insert(0, "1929647130")
+        if "3123366945" not in admin_ids:
+            admin_ids.insert(0, "3123366945")
         lines = []
         for index, admin_id in enumerate(admin_ids, start=1):
             nickname = self.get_user_nickname(group_id, admin_id)
-            role = "超级管理员" if admin_id == "1929647130" else "管理员"
+            role = "超级管理员" if admin_id == "3123366945" else "管理员"
             lines.append(f"{index}. {nickname} （{role}）")
         return "\n".join(lines)
 
