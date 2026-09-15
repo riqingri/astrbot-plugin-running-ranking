@@ -324,6 +324,9 @@
   }
 
   async function save() {
+    if (!state.editing) {
+      return;
+    }
     const c = config();
     const body = collectForm();
     const isCreate = state.editing.mode === "create";
