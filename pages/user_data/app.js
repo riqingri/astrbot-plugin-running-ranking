@@ -11,14 +11,15 @@
       endpoint: "running_records",
       pkFields: ["id"],
       autoFields: ["id"],
+      requiredFields: ["user_id", "user_name", "group_id", "distance", "run_time"],
       columns: [
         { key: "id", label: "ID" },
         { key: "user_id", label: "用户 QQ" },
         { key: "user_name", label: "昵称" },
         { key: "group_id", label: "群号" },
         { key: "distance", label: "距离(km)", type: "number" },
-        { key: "run_time", label: "跑步时间" },
-        { key: "created_at", label: "录入时间" },
+        { key: "run_time", label: "跑步时间", type: "datetime" },
+        { key: "created_at", label: "录入时间", type: "datetime" },
       ],
     },
     newbie_users: {
@@ -26,6 +27,7 @@
       endpoint: "newbie_users",
       pkFields: ["group_id", "semester", "user_id"],
       autoFields: [],
+      requiredFields: ["group_id", "user_id"],
       columns: [
         { key: "group_id", label: "群号" },
         { key: "semester", label: "学期" },
@@ -42,6 +44,7 @@
       endpoint: "newbie_running_points",
       pkFields: ["id"],
       autoFields: ["id"],
+      requiredFields: ["group_id", "user_id", "year", "week", "points"],
       columns: [
         { key: "id", label: "ID" },
         { key: "group_id", label: "群号" },
@@ -59,6 +62,7 @@
       endpoint: "newbie_training_records",
       pkFields: ["id"],
       autoFields: ["id"],
+      requiredFields: ["group_id", "user_id"],
       columns: [
         { key: "id", label: "ID" },
         { key: "group_id", label: "群号" },
@@ -73,6 +77,7 @@
       endpoint: "newbies_admins",
       pkFields: ["group_id", "user_id"],
       autoFields: [],
+      requiredFields: ["group_id", "user_id"],
       columns: [
         { key: "group_id", label: "群号" },
         { key: "user_id", label: "管理员 QQ" },
@@ -268,6 +273,12 @@
     }
   }
 
+  function toDatetimeLocal(iso) {
+    if (!iso) return "";
+    const m = String(iso).match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+    return m ? `${m[1]}T${m[2]}` : "";
+  }
+
   function openModal(mode, row) {
     state.editing = row ? { mode, row } : { mode };
     const c = config();
@@ -281,17 +292,24 @@
       if (isCreate && isAuto) return; // 自动 id 不显示
 
       const readonly = isAuto || (!isCreate && isPk);
+      const required = (c.requiredFields || []).includes(col.key);
       const wrap = document.createElement("div");
       wrap.className = "field";
       const label = document.createElement("label");
-      label.textContent = col.label + (readonly ? "（不可改）" : "");
+      label.textContent = col.label + (readonly ? "（不可改）" : (isCreate && required ? " *" : ""));
       const input = document.createElement("input");
-      input.type = col.type === "number" ? "number" : "text";
+      if (col.type === "number") {
+        input.type = "number";
+      } else if (col.type === "datetime") {
+        input.type = "datetime-local";
+      } else {
+        input.type = "text";
+      }
       input.dataset.key = col.key;
       input.readOnly = readonly;
       if (row && row[col.key] !== null && row[col.key] !== undefined) {
-        input.value = row[col.key];
-      } else if (isCreate && col.type !== "number") {
+        input.value = col.type === "datetime" ? toDatetimeLocal(row[col.key]) : row[col.key];
+      } else if (isCreate && col.type !== "number" && !required) {
         input.placeholder = "选填";
       }
       wrap.appendChild(label);

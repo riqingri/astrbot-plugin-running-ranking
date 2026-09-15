@@ -23,6 +23,17 @@ def _str(value):
     return str(value).strip()
 
 
+def _normalize_datetime(value):
+    """把前端传来的时间字符串统一成 ISO 秒级格式，保证日/周/月榜字符串比较正确。"""
+    if not value:
+        return ""
+    value = str(value).strip()
+    try:
+        return datetime.fromisoformat(value).isoformat()
+    except (TypeError, ValueError):
+        return value
+
+
 def _has(body, key):
     value = body.get(key)
     return value is not None and str(value).strip() != ""
@@ -199,7 +210,8 @@ class WebApiMixin:
         if missing:
             return json_response({"status": "error", "message": f"缺少字段: {', '.join(missing)}"})
 
-        created_at = _str(body.get("created_at")) or datetime.now().isoformat()
+        run_time = _normalize_datetime(body.get("run_time"))
+        created_at = _normalize_datetime(body.get("created_at")) or datetime.now().isoformat()
         conn = self.get_conn()
         cursor = conn.cursor()
         cursor.execute(
@@ -212,7 +224,7 @@ class WebApiMixin:
                 _str(body["user_name"]),
                 _str(body["group_id"]),
                 _float(body["distance"]),
-                _str(body["run_time"]),
+                run_time,
                 created_at,
             ),
         )
@@ -240,8 +252,8 @@ class WebApiMixin:
                 _str(body.get("user_name")),
                 _str(body.get("group_id")),
                 _float(body.get("distance")),
-                _str(body.get("run_time")),
-                _str(body.get("created_at")),
+                _normalize_datetime(body.get("run_time")),
+                _normalize_datetime(body.get("created_at")),
                 record_id,
             ),
         )
