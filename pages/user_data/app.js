@@ -46,6 +46,7 @@
       autoFields: ["id"],
       requiredFields: ["group_id", "user_id", "year", "week", "points"],
       columns: [
+        { key: "_nickname", label: "昵称", autofill: ["user_id", "group_id"], helper: true, placeholder: "输入昵称，自动填充 QQ 和群号" },
         { key: "id", label: "ID" },
         { key: "group_id", label: "群号" },
         { key: "semester", label: "学期" },
@@ -64,6 +65,7 @@
       autoFields: ["id"],
       requiredFields: ["group_id", "user_id"],
       columns: [
+        { key: "_nickname", label: "昵称", autofill: ["user_id", "group_id"], helper: true, placeholder: "输入昵称，自动填充 QQ 和群号" },
         { key: "id", label: "ID" },
         { key: "group_id", label: "群号" },
         { key: "semester", label: "学期" },
@@ -79,6 +81,7 @@
       autoFields: [],
       requiredFields: ["group_id", "user_id"],
       columns: [
+        { key: "_nickname", label: "昵称", autofill: ["user_id", "group_id"], helper: true, placeholder: "输入昵称，自动填充 QQ 和群号" },
         { key: "group_id", label: "群号" },
         { key: "user_id", label: "管理员 QQ" },
         { key: "created_at", label: "设置时间" },
@@ -166,7 +169,7 @@
   function renderThead() {
     const c = config();
     const tr = document.createElement("tr");
-    c.columns.forEach((col) => {
+    c.columns.filter((col) => !col.helper).forEach((col) => {
       const th = document.createElement("th");
       th.textContent = col.label;
       tr.appendChild(th);
@@ -191,7 +194,7 @@
 
     state.rows.forEach((row) => {
       const tr = document.createElement("tr");
-      c.columns.forEach((col) => {
+      c.columns.filter((col) => !col.helper).forEach((col) => {
         const td = document.createElement("td");
         td.textContent = cellText(col, row);
         td.title = cellText(col, row);
@@ -343,6 +346,7 @@
 
     els.modalForm.innerHTML = "";
     c.columns.forEach((col) => {
+      if (col.helper && !isCreate) return; // 辅助字段仅在新增时显示
       const isAuto = c.autoFields.includes(col.key);
       const isPk = c.pkFields.includes(col.key);
       if (isCreate && isAuto) return; // 自动 id 不显示
@@ -365,6 +369,8 @@
       input.readOnly = readonly;
       if (row && row[col.key] !== null && row[col.key] !== undefined) {
         input.value = col.type === "datetime" ? toDatetimeLocal(row[col.key]) : row[col.key];
+      } else if (col.placeholder) {
+        input.placeholder = col.placeholder;
       } else if (isCreate && col.type !== "number" && !required) {
         input.placeholder = "选填";
       }
@@ -395,6 +401,7 @@
     inputs.forEach((input) => {
       const key = input.dataset.key;
       const col = c.columns.find((x) => x.key === key);
+      if (col && col.helper) return; // 辅助字段不提交
       let value = input.value;
       if (col && col.type === "number") {
         value = value === "" ? "" : Number(value);
