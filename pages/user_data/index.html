@@ -17,6 +17,7 @@
     <button id="searchBtn" class="btn">搜索</button>
     <button id="resetBtn" class="btn ghost">重置</button>
     <span class="spacer"></span>
+    <button id="exportBtn" class="btn ghost">📥 导出新手任务</button>
     <button id="createBtn" class="btn primary">＋ 新增</button>
   </section>
 
@@ -45,6 +46,45 @@
     <div class="modal-foot">
       <button class="btn ghost" id="modalCancel">取消</button>
       <button class="btn primary" id="modalSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="exportModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2>导出新手任务</h2>
+      <button class="close" id="exportClose">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>群号（可选，留空为全部群）</label>
+        <select id="exportGroup" class="input">
+          <option value="">全部群</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>开始时间（新增积分 / 训练次数起算，留空不限）</label>
+        <input id="exportFrom" type="datetime-local">
+      </div>
+      <div class="field">
+        <label>结束时间（留空不限）</label>
+        <input id="exportTo" type="datetime-local">
+      </div>
+      <div class="export-actions">
+        <button class="btn primary" id="exportRun">生成报表</button>
+        <button class="btn" id="exportDownload" disabled>下载 CSV</button>
+      </div>
+      <div class="export-result">
+        <div class="export-info" id="exportInfo"></div>
+        <div class="table-wrap export-table">
+          <table>
+            <thead id="exportThead"></thead>
+            <tbody id="exportBody"></tbody>
+          </table>
+          <div class="empty" id="exportEmpty" hidden>暂无数据，先选择时间生成报表</div>
+        </div>
+      </div>
     </div>
   </div>
 </div>

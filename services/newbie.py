@@ -1,3 +1,5 @@
+import csv
+import io
 import re
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple
@@ -5,6 +7,20 @@ from typing import Dict, Optional, Tuple
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 import astrbot.api.message_components as Comp
+
+
+NEWBIE_EXPORT_COLUMNS = [
+    ("group_id", "群号"),
+    ("nickname", "用户名"),
+    ("gender", "性别"),
+    ("stage", "阶段"),
+    ("week", "阶段周数"),
+    ("this_week_runs", "本周跑步次数"),
+    ("period_points", "新增跑步积分"),
+    ("period_training", "训练次数"),
+    ("training_points", "总训练积分"),
+    ("total_points", "当前总积分"),
+]
 
 
 class NewbieMixin:
@@ -45,6 +61,40 @@ class NewbieMixin:
         if elapsed_after_stage1 < 12 * 7:
             return 4, 12 * 7 - elapsed_after_stage1
         return 4, 0
+
+    def get_stage_week(self, started_at: Optional[str], reference_time: Optional[datetime] = None) -> Tuple[int, int]:
+        """返回 (阶段, 阶段内周数)。未开始积分时返回 (0, 0)。"""
+        if not started_at:
+            return (0, 0)
+
+        try:
+            start_time = datetime.fromisoformat(started_at)
+        except (TypeError, ValueError):
+            return (0, 0)
+
+        if reference_time is None:
+            reference_time = datetime.now()
+
+        start_week_start = start_time - timedelta(days=start_time.weekday())
+        stage1_end = start_week_start + timedelta(weeks=4 if start_time.weekday() == 0 else 5)
+
+        if reference_time < stage1_end:
+            stage = 1
+            stage_start = start_time
+        else:
+            elapsed = (reference_time - stage1_end).days
+            if elapsed < 4 * 7:
+                stage = 2
+                stage_start = stage1_end
+            elif elapsed < 8 * 7:
+                stage = 3
+                stage_start = stage1_end + timedelta(weeks=4)
+            else:
+                stage = 4
+                stage_start = stage1_end + timedelta(weeks=8)
+
+        week = (reference_time - stage_start).days // 7 + 1
+        return (stage, week)
 
     def get_running_rule(self, gender: str, started_at: Optional[str], reference_time: Optional[datetime] = None) -> Optional[Tuple[Optional[Dict], int, int]]:
         stage, days_to_next_stage = self.get_running_stage(started_at, reference_time)
@@ -561,6 +611,95 @@ class NewbieMixin:
             "running_points": running_points,
             "training_points": training_points,
             "total_points": total_points,
+        }
+
+    def export_newbie_report(self, group_id: Optional[str] = None, start_iso: Optional[str] = None, end_iso: Optional[str] = None, semester: str = "2026_fall") -> Dict:
+        """批量导出新手任务进度报表（WebUI 用）。返回 {columns, rows, csv, count}。"""
+        conn = self.get_newbie_conn()
+        cursor = conn.cursor()
+
+        base_where = ["semester = ?"]
+        base_params = [semester]
+        if group_id:
+            base_where.append("group_id = ?")
+            base_params.append(group_id)
+
+        cursor.execute(
+            f"SELECT * FROM newbie_users WHERE {' AND '.join(base_where)} ORDER BY group_id, user_id",
+            base_params,
+        )
+        users = cursor.fetchall()
+
+        def aggregate(table, extra_where, extra_params, column, alias):
+            w = base_where + extra_where
+            p = base_params + extra_params
+            cursor.execute(
+                f"SELECT user_id, {column} AS {alias} FROM {table} WHERE {' AND '.join(w)} GROUP BY user_id",
+                p,
+            )
+            result = {}
+            for row in cursor.fetchall():
+                result[row["user_id"]] = row[alias] or 0
+            return result
+
+        now = datetime.now()
+        week_monday = (now - timedelta(days=now.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+
+        week_runs = aggregate("newbie_running_records", ["created_at >= ?"], [week_monday.isoformat()], "COUNT(*)", "c")
+        all_running_points = aggregate("newbie_running_points", [], [], "SUM(points)", "s")
+        all_training = aggregate("newbie_training_records", [], [], "COUNT(*)", "c")
+
+        period_where = []
+        period_params = []
+        if start_iso:
+            period_where.append("created_at >= ?")
+            period_params.append(start_iso)
+        if end_iso:
+            period_where.append("created_at <= ?")
+            period_params.append(end_iso)
+        period_points = aggregate("newbie_running_points", period_where, period_params, "SUM(points)", "s")
+        period_training = aggregate("newbie_training_records", period_where, period_params, "COUNT(*)", "c")
+
+        rows = []
+        for user in users:
+            user_id = user["user_id"]
+            running_points_total = all_running_points.get(user_id, 0)
+            training_total = all_training.get(user_id, 0)
+            training_points = min((training_total // 4) * 3, 12)
+
+            stage, week = self.get_stage_week(user["points_started_at"], now)
+
+            rows.append({
+                "group_id": str(user["group_id"]),
+                "nickname": user["nickname"] or str(user_id),
+                "gender": "女" if user["gender"] == "female" else "男",
+                "stage": "未开始" if stage == 0 else f"第{stage}阶段",
+                "week": "" if stage == 0 else f"第{week}周",
+                "this_week_runs": week_runs.get(user_id, 0),
+                "period_points": period_points.get(user_id, 0),
+                "period_training": period_training.get(user_id, 0),
+                "training_points": training_points,
+                "total_points": running_points_total + training_points,
+            })
+
+        conn.close()
+
+        rows.sort(key=lambda r: (r["group_id"], -r["total_points"]))
+
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow([label for _, label in NEWBIE_EXPORT_COLUMNS])
+        for r in rows:
+            writer.writerow([r[key] for key, _ in NEWBIE_EXPORT_COLUMNS])
+        csv_text = "﻿" + buffer.getvalue()
+
+        return {
+            "columns": [{"key": key, "label": label} for key, label in NEWBIE_EXPORT_COLUMNS],
+            "rows": rows,
+            "csv": csv_text,
+            "count": len(rows),
         }
 
     def get_newbie_leaderboard(self, group_id: str, changed_user: Optional[str] = None, point_change: int = 0) -> str:

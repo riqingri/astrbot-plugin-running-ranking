@@ -71,6 +71,7 @@ class WebApiMixin:
             ("GET", f"{prefix}/overview", self._api_overview, "数据概览"),
             ("GET", f"{prefix}/groups", self._api_groups, "群列表"),
             ("GET", f"{prefix}/suggest", self._api_suggest_users, "昵称联想用户"),
+            ("GET", f"{prefix}/newbie_export", self._api_export_newbie_report, "新手任务批量导出"),
 
             ("GET", f"{prefix}/running_records", self._api_list_running_records, "跑步记录列表"),
             ("POST", f"{prefix}/running_records/create", self._api_create_running_record, "新增跑步记录"),
@@ -206,6 +207,19 @@ class WebApiMixin:
         nb.close()
 
         return json_response({"status": "ok", "data": list(results.values())[:20]})
+
+    async def _api_export_newbie_report(self):
+        group_id = _str(request.query.get("group_id")) or None
+        start_iso = _normalize_datetime(request.query.get("from")) or None
+        end_iso = _normalize_datetime(request.query.get("to")) or None
+
+        report = self.export_newbie_report(
+            group_id=group_id,
+            start_iso=start_iso,
+            end_iso=end_iso,
+        )
+        report["filename"] = f"新手任务导出_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        return json_response({"status": "ok", "data": report})
 
     # =============================================================
     # 跑步记录 running_records（running.db）

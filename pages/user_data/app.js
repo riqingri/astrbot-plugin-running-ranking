@@ -97,6 +97,8 @@
     offset: 0,
     groups: [],
     editing: null, // null | { mode: "create" } | { mode: "edit", row }
+    exportCsv: "",
+    exportFilename: "",
   };
 
   const $ = (id) => document.getElementById(id);
@@ -121,6 +123,18 @@
     modalCancel: $("modalCancel"),
     modalSave: $("modalSave"),
     toast: $("toast"),
+    exportBtn: $("exportBtn"),
+    exportModal: $("exportModal"),
+    exportClose: $("exportClose"),
+    exportGroup: $("exportGroup"),
+    exportFrom: $("exportFrom"),
+    exportTo: $("exportTo"),
+    exportRun: $("exportRun"),
+    exportDownload: $("exportDownload"),
+    exportInfo: $("exportInfo"),
+    exportThead: $("exportThead"),
+    exportBody: $("exportBody"),
+    exportEmpty: $("exportEmpty"),
   };
 
   let toastTimer = null;
@@ -274,6 +288,94 @@
     } catch (e) {
       els.overview.textContent = "";
     }
+  }
+
+  function openExport() {
+    els.exportGroup.innerHTML = '<option value="">全部群</option>';
+    state.groups.forEach((g) => {
+      const opt = document.createElement("option");
+      opt.value = g;
+      opt.textContent = g;
+      els.exportGroup.appendChild(opt);
+    });
+    els.exportFrom.value = "";
+    els.exportTo.value = "";
+    els.exportInfo.textContent = "";
+    els.exportThead.innerHTML = "";
+    els.exportBody.innerHTML = "";
+    els.exportEmpty.hidden = false;
+    els.exportEmpty.textContent = "暂无数据，先选择时间生成报表";
+    els.exportDownload.disabled = true;
+    state.exportCsv = "";
+    state.exportFilename = "";
+    els.exportModal.hidden = false;
+  }
+
+  function renderExport(data) {
+    const columns = (data && data.columns) || [];
+    const rows = (data && data.rows) || [];
+    state.exportCsv = (data && data.csv) || "";
+    state.exportFilename = (data && data.filename) || "新手任务导出.csv";
+
+    els.exportInfo.textContent = `共 ${rows.length} 条`;
+    els.exportThead.innerHTML = "";
+    const tr = document.createElement("tr");
+    columns.forEach((col) => {
+      const th = document.createElement("th");
+      th.textContent = col.label;
+      tr.appendChild(th);
+    });
+    els.exportThead.appendChild(tr);
+
+    els.exportBody.innerHTML = "";
+    els.exportEmpty.hidden = rows.length > 0;
+    els.exportEmpty.textContent = "该时间段内暂无数据";
+    rows.forEach((row) => {
+      const r = document.createElement("tr");
+      columns.forEach((col) => {
+        const td = document.createElement("td");
+        const v = row[col.key];
+        td.textContent = v === null || v === undefined || v === "" ? "—" : String(v);
+        td.title = td.textContent;
+        r.appendChild(td);
+      });
+      els.exportBody.appendChild(r);
+    });
+
+    els.exportDownload.disabled = rows.length === 0 || !state.exportCsv;
+  }
+
+  async function runExport() {
+    const params = {};
+    const gid = els.exportGroup.value;
+    const fromVal = els.exportFrom.value;
+    const toVal = els.exportTo.value;
+    if (gid) params.group_id = gid;
+    if (fromVal) params.from = fromVal;
+    if (toVal) params.to = toVal;
+
+    els.exportRun.disabled = true;
+    try {
+      const data = await bridge.apiGet("newbie_export", params);
+      renderExport(data);
+    } catch (e) {
+      toast("导出失败：" + (e && e.message ? e.message : e));
+    } finally {
+      els.exportRun.disabled = false;
+    }
+  }
+
+  function downloadCsv() {
+    if (!state.exportCsv) return;
+    const blob = new Blob([state.exportCsv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = state.exportFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function toDatetimeLocal(iso) {
@@ -484,6 +586,15 @@
     els.modalSave.onclick = save;
     els.modal.addEventListener("click", (e) => {
       if (e.target === els.modal) closeModal();
+    });
+    els.exportBtn.onclick = openExport;
+    els.exportClose.onclick = () => {
+      els.exportModal.hidden = true;
+    };
+    els.exportRun.onclick = runExport;
+    els.exportDownload.onclick = downloadCsv;
+    els.exportModal.addEventListener("click", (e) => {
+      if (e.target === els.exportModal) els.exportModal.hidden = true;
     });
   }
 
