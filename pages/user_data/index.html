@@ -89,6 +89,21 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="confirmModal" hidden>
+  <div class="modal confirm">
+    <div class="modal-head">
+      <h2>确认删除</h2>
+    </div>
+    <div class="modal-body">
+      <p class="confirm-text" id="confirmText"></p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="confirmCancel">取消</button>
+      <button class="btn danger" id="confirmOk">删除</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
 <script src="/api/plugin/page/bridge-sdk.js"></script>

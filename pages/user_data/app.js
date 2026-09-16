@@ -30,7 +30,7 @@
       requiredFields: ["group_id", "user_id", "gender"],
       columns: [
         { key: "group_id", label: "群号" },
-        { key: "semester", label: "学期" },
+        { key: "semester", label: "学期", default: "2026_fall" },
         { key: "user_id", label: "用户 QQ" },
         { key: "nickname", label: "昵称", autofill: ["user_id", "group_id"] },
         { key: "gender", label: "性别", type: "select", options: [{ value: "male", label: "男" }, { value: "female", label: "女" }] },
@@ -49,7 +49,7 @@
         { key: "_nickname", label: "昵称", autofill: ["user_id", "group_id"], helper: true, placeholder: "输入昵称，自动填充 QQ 和群号" },
         { key: "id", label: "ID" },
         { key: "group_id", label: "群号" },
-        { key: "semester", label: "学期" },
+        { key: "semester", label: "学期", default: "2026_fall" },
         { key: "user_id", label: "用户 QQ" },
         { key: "year", label: "年", type: "number" },
         { key: "week", label: "周", type: "number" },
@@ -68,7 +68,7 @@
         { key: "_nickname", label: "昵称", autofill: ["user_id", "group_id"], helper: true, placeholder: "输入昵称，自动填充 QQ 和群号" },
         { key: "id", label: "ID" },
         { key: "group_id", label: "群号" },
-        { key: "semester", label: "学期" },
+        { key: "semester", label: "学期", default: "2026_fall" },
         { key: "user_id", label: "用户 QQ" },
         { key: "admin_id", label: "管理员 QQ" },
         { key: "created_at", label: "时间", type: "datetime" },
@@ -135,6 +135,10 @@
     exportThead: $("exportThead"),
     exportBody: $("exportBody"),
     exportEmpty: $("exportEmpty"),
+    confirmModal: $("confirmModal"),
+    confirmText: $("confirmText"),
+    confirmOk: $("confirmOk"),
+    confirmCancel: $("confirmCancel"),
   };
 
   let toastTimer = null;
@@ -143,6 +147,23 @@
     els.toast.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (els.toast.hidden = true), 2500);
+  }
+
+  // 沙箱 iframe 屏蔽了 window.confirm，改用 DOM 确认框
+  let confirmResolve = null;
+  function confirmDialog(message) {
+    return new Promise((resolve) => {
+      els.confirmText.textContent = message;
+      els.confirmModal.hidden = false;
+      confirmResolve = resolve;
+    });
+  }
+  function resolveConfirm(value) {
+    els.confirmModal.hidden = true;
+    if (confirmResolve) {
+      confirmResolve(value);
+      confirmResolve = null;
+    }
   }
 
   // 尽量跟随 Dashboard 主题
@@ -483,6 +504,8 @@
         }
         if (row && row[col.key] !== null && row[col.key] !== undefined) {
           el.value = col.type === "datetime" ? toDatetimeLocal(row[col.key]) : row[col.key];
+        } else if (col.default !== undefined && col.default !== null) {
+          el.value = col.default;
         } else if (col.placeholder) {
           el.placeholder = col.placeholder;
         } else if (isCreate && col.type !== "number" && !required) {
@@ -553,7 +576,8 @@
   async function remove(row) {
     const c = config();
     const key = c.pkFields.map((f) => `${f}: ${row[f]}`).join(", ");
-    if (!window.confirm(`确认删除这条${c.label}？\n${key}`)) return;
+    const ok = await confirmDialog(`确认删除这条${c.label}？\n${key}`);
+    if (!ok) return;
 
     const body = {};
     c.pkFields.forEach((f) => (body[f] = row[f]));
@@ -609,6 +633,11 @@
     els.exportDownload.onclick = downloadCsv;
     els.exportModal.addEventListener("click", (e) => {
       if (e.target === els.exportModal) els.exportModal.hidden = true;
+    });
+    els.confirmOk.onclick = () => resolveConfirm(true);
+    els.confirmCancel.onclick = () => resolveConfirm(false);
+    els.confirmModal.addEventListener("click", (e) => {
+      if (e.target === els.confirmModal) resolveConfirm(false);
     });
   }
 

@@ -338,6 +338,17 @@ td.row-actions .btn {
   border-top: 1px solid var(--border);
 }
 
+.modal.confirm {
+  max-width: 380px;
+}
+
+.confirm-text {
+  margin: 0;
+  line-height: 1.6;
+  white-space: pre-line;
+  word-break: break-all;
+}
+
 .toast {
   position: fixed;
   bottom: 24px;
