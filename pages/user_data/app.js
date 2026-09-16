@@ -219,7 +219,9 @@
   function cellText(col, row) {
     const v = row[col.key];
     if (v === null || v === undefined || v === "") return "—";
-    return String(v);
+    let s = String(v);
+    if (col.type === "datetime") s = s.replace(/\.\d+$/, ""); // 去掉微秒尾数
+    return s;
   }
 
   function renderBody() {
@@ -524,6 +526,19 @@
         attachUserAutocomplete(input, col.autofill);
       }
     });
+
+    // 新增时：表里有多个时间字段时，填一个自动同步到其余空的时间字段
+    if (isCreate) {
+      const timeInputs = Array.from(els.modalForm.querySelectorAll('input[type="datetime-local"]'));
+      timeInputs.forEach((input) => {
+        input.addEventListener("change", () => {
+          if (!input.value) return;
+          timeInputs.forEach((other) => {
+            if (other !== input && !other.value) other.value = input.value;
+          });
+        });
+      });
+    }
 
     els.modal.hidden = false;
   }

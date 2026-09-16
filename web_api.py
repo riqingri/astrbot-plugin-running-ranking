@@ -24,14 +24,19 @@ def _str(value):
 
 
 def _normalize_datetime(value):
-    """把前端传来的时间字符串统一成 ISO 秒级格式，保证日/周/月榜字符串比较正确。"""
+    """把前端传来的时间字符串统一成 ISO 秒级格式（去掉微秒），保证字符串比较正确。"""
     if not value:
         return ""
     value = str(value).strip()
     try:
-        return datetime.fromisoformat(value).isoformat()
+        return datetime.fromisoformat(value).replace(microsecond=0).isoformat()
     except (TypeError, ValueError):
         return value
+
+
+def _now_iso():
+    """当前时间的秒级 ISO 字符串（不含微秒）。"""
+    return datetime.now().replace(microsecond=0).isoformat()
 
 
 def _has(body, key):
@@ -278,7 +283,7 @@ class WebApiMixin:
             return json_response({"status": "error", "message": f"缺少字段: {', '.join(missing)}"})
 
         run_time = _normalize_datetime(body.get("run_time"))
-        created_at = _normalize_datetime(body.get("created_at")) or datetime.now().isoformat()
+        created_at = _normalize_datetime(body.get("created_at")) or _now_iso()
         conn = self.get_conn()
         cursor = conn.cursor()
         cursor.execute(
@@ -403,7 +408,7 @@ class WebApiMixin:
                 _str(body["user_id"]),
                 _str(body.get("nickname")) or None,
                 _str(body.get("gender")) or "male",
-                _str(body.get("joined_at")) or datetime.now().isoformat(),
+                _str(body.get("joined_at")) or _now_iso(),
                 _int(body.get("points_started"), 0),
                 _str(body.get("points_started_at")) or None,
             ),
@@ -491,7 +496,7 @@ class WebApiMixin:
                 _int(body["week"]),
                 _int(body.get("month"), datetime.now().month),
                 _int(body["points"]),
-                _str(body.get("created_at")) or datetime.now().isoformat(),
+                _str(body.get("created_at")) or _now_iso(),
             ),
         )
         nb.commit()
@@ -569,7 +574,7 @@ class WebApiMixin:
                 _str(body.get("semester")) or "2026_fall",
                 _str(body["user_id"]),
                 _str(body.get("admin_id")) or "3123366945",
-                _str(body.get("created_at")) or datetime.now().isoformat(),
+                _str(body.get("created_at")) or _now_iso(),
             ),
         )
         nb.commit()
@@ -642,7 +647,7 @@ class WebApiMixin:
             (
                 _str(body["group_id"]),
                 _str(body["user_id"]),
-                _str(body.get("created_at")) or datetime.now().isoformat(),
+                _str(body.get("created_at")) or _now_iso(),
             ),
         )
         nb.commit()
@@ -660,7 +665,7 @@ class WebApiMixin:
         cursor = nb.cursor()
         cursor.execute(
             "UPDATE newbies_admins SET created_at = ? WHERE group_id = ? AND user_id = ?",
-            (_str(body.get("created_at")) or datetime.now().isoformat(), group_id, user_id),
+            (_str(body.get("created_at")) or _now_iso(), group_id, user_id),
         )
         nb.commit()
         nb.close()
