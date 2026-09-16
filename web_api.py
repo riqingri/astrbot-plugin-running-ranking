@@ -384,7 +384,7 @@ class WebApiMixin:
 
     async def _api_create_newbie_user(self):
         body = await _read_body()
-        required = ["group_id", "user_id"]
+        required = ["group_id", "user_id", "gender"]
         missing = [k for k in required if not _has(body, k)]
         if missing:
             return json_response({"status": "error", "message": f"缺少字段: {', '.join(missing)}"})

@@ -27,16 +27,16 @@
       endpoint: "newbie_users",
       pkFields: ["group_id", "semester", "user_id"],
       autoFields: [],
-      requiredFields: ["group_id", "user_id"],
+      requiredFields: ["group_id", "user_id", "gender"],
       columns: [
         { key: "group_id", label: "群号" },
         { key: "semester", label: "学期" },
         { key: "user_id", label: "用户 QQ" },
         { key: "nickname", label: "昵称", autofill: ["user_id", "group_id"] },
-        { key: "gender", label: "性别" },
-        { key: "joined_at", label: "加入时间" },
+        { key: "gender", label: "性别", type: "select", options: [{ value: "male", label: "男" }, { value: "female", label: "女" }] },
+        { key: "joined_at", label: "加入时间", type: "datetime" },
         { key: "points_started", label: "开始积分", type: "number" },
-        { key: "points_started_at", label: "积分开始时间" },
+        { key: "points_started_at", label: "积分开始时间", type: "datetime" },
       ],
     },
     newbie_running_points: {
@@ -55,7 +55,7 @@
         { key: "week", label: "周", type: "number" },
         { key: "month", label: "月", type: "number" },
         { key: "points", label: "积分", type: "number" },
-        { key: "created_at", label: "时间" },
+        { key: "created_at", label: "时间", type: "datetime" },
       ],
     },
     newbie_training_records: {
@@ -71,7 +71,7 @@
         { key: "semester", label: "学期" },
         { key: "user_id", label: "用户 QQ" },
         { key: "admin_id", label: "管理员 QQ" },
-        { key: "created_at", label: "时间" },
+        { key: "created_at", label: "时间", type: "datetime" },
       ],
     },
     newbies_admins: {
@@ -84,7 +84,7 @@
         { key: "_nickname", label: "昵称", autofill: ["user_id", "group_id"], helper: true, placeholder: "输入昵称，自动填充 QQ 和群号" },
         { key: "group_id", label: "群号" },
         { key: "user_id", label: "管理员 QQ" },
-        { key: "created_at", label: "设置时间" },
+        { key: "created_at", label: "设置时间", type: "datetime" },
       ],
     },
   };
@@ -459,25 +459,39 @@
       wrap.className = "field";
       const label = document.createElement("label");
       label.textContent = col.label + (readonly ? "（不可改）" : (isCreate && required ? " *" : ""));
-      const input = document.createElement("input");
-      if (col.type === "number") {
-        input.type = "number";
-      } else if (col.type === "datetime") {
-        input.type = "datetime-local";
+      const el = col.type === "select" ? document.createElement("select") : document.createElement("input");
+      el.dataset.key = col.key;
+
+      if (col.type === "select") {
+        (col.options || []).forEach((opt) => {
+          const option = document.createElement("option");
+          option.value = opt.value;
+          option.textContent = opt.label;
+          el.appendChild(option);
+        });
+        if (row && row[col.key] !== null && row[col.key] !== undefined) {
+          el.value = row[col.key];
+        }
+        el.disabled = readonly;
       } else {
-        input.type = "text";
-      }
-      input.dataset.key = col.key;
-      input.readOnly = readonly;
-      if (row && row[col.key] !== null && row[col.key] !== undefined) {
-        input.value = col.type === "datetime" ? toDatetimeLocal(row[col.key]) : row[col.key];
-      } else if (col.placeholder) {
-        input.placeholder = col.placeholder;
-      } else if (isCreate && col.type !== "number" && !required) {
-        input.placeholder = "选填";
+        if (col.type === "number") {
+          el.type = "number";
+        } else if (col.type === "datetime") {
+          el.type = "datetime-local";
+        } else {
+          el.type = "text";
+        }
+        if (row && row[col.key] !== null && row[col.key] !== undefined) {
+          el.value = col.type === "datetime" ? toDatetimeLocal(row[col.key]) : row[col.key];
+        } else if (col.placeholder) {
+          el.placeholder = col.placeholder;
+        } else if (isCreate && col.type !== "number" && !required) {
+          el.placeholder = "选填";
+        }
+        el.readOnly = readonly;
       }
       wrap.appendChild(label);
-      wrap.appendChild(input);
+      wrap.appendChild(el);
       els.modalForm.appendChild(wrap);
     });
 
@@ -499,12 +513,12 @@
   function collectForm() {
     const c = config();
     const body = {};
-    const inputs = els.modalForm.querySelectorAll("input");
-    inputs.forEach((input) => {
-      const key = input.dataset.key;
+    const inputs = els.modalForm.querySelectorAll("input, select");
+    inputs.forEach((el) => {
+      const key = el.dataset.key;
       const col = c.columns.find((x) => x.key === key);
       if (col && col.helper) return; // 辅助字段不提交
-      let value = input.value;
+      let value = el.value;
       if (col && col.type === "number") {
         value = value === "" ? "" : Number(value);
       }
