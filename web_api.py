@@ -1,3 +1,6 @@
+import csv
+import io
+import sqlite3
 from datetime import datetime
 
 from astrbot.api.web import json_response, request
@@ -67,6 +70,92 @@ async def _read_body():
     return {}
 
 
+# =============================================================
+# 一键导入：各表模板规格
+# =============================================================
+
+IMPORT_SPECS = {
+    "running_records": {
+        "db": "running",
+        "table": "running_records",
+        "label": "跑步记录",
+        "columns": [
+            {"key": "user_id", "label": "用户QQ", "required": True, "default": None, "example": "10001", "type": "str"},
+            {"key": "user_name", "label": "昵称", "required": True, "default": None, "example": "小明", "type": "str"},
+            {"key": "group_id", "label": "群号", "required": True, "default": None, "example": "123456789", "type": "str"},
+            {"key": "distance", "label": "距离(km)", "required": True, "default": None, "example": "5.2", "type": "float"},
+            {"key": "run_time", "label": "跑步时间", "required": True, "default": None, "example": "2026-09-16T14:30", "type": "datetime"},
+            {"key": "created_at", "label": "录入时间", "required": False, "default": "now", "example": "2026-09-16T14:30", "type": "datetime"},
+        ],
+    },
+    "newbie_users": {
+        "db": "newbie",
+        "table": "newbie_users",
+        "label": "新手用户",
+        "columns": [
+            {"key": "group_id", "label": "群号", "required": True, "default": None, "example": "123456789", "type": "str"},
+            {"key": "semester", "label": "学期", "required": False, "default": "2026_fall", "example": "2026_fall", "type": "str"},
+            {"key": "user_id", "label": "用户QQ", "required": True, "default": None, "example": "10001", "type": "str"},
+            {"key": "nickname", "label": "昵称", "required": False, "default": None, "example": "小明", "type": "str"},
+            {"key": "gender", "label": "性别", "required": True, "default": None, "example": "male", "type": "str"},
+            {"key": "joined_at", "label": "加入时间", "required": False, "default": "now", "example": "2026-09-16T14:30", "type": "datetime"},
+            {"key": "points_started", "label": "开始积分", "required": False, "default": "0", "example": "1", "type": "int"},
+            {"key": "points_started_at", "label": "积分开始时间", "required": False, "default": None, "example": "2026-09-16T14:30", "type": "datetime"},
+        ],
+    },
+    "newbie_running_points": {
+        "db": "newbie",
+        "table": "newbie_running_points",
+        "label": "积分",
+        "columns": [
+            {"key": "group_id", "label": "群号", "required": True, "default": None, "example": "123456789", "type": "str"},
+            {"key": "semester", "label": "学期", "required": False, "default": "2026_fall", "example": "2026_fall", "type": "str"},
+            {"key": "user_id", "label": "用户QQ", "required": True, "default": None, "example": "10001", "type": "str"},
+            {"key": "year", "label": "年", "required": True, "default": None, "example": "2026", "type": "int"},
+            {"key": "week", "label": "周", "required": True, "default": None, "example": "38", "type": "int"},
+            {"key": "month", "label": "月", "required": False, "default": "month", "example": "9", "type": "int"},
+            {"key": "points", "label": "积分", "required": True, "default": None, "example": "3", "type": "int"},
+            {"key": "created_at", "label": "时间", "required": False, "default": "now", "example": "2026-09-16T14:30", "type": "datetime"},
+        ],
+    },
+    "newbie_training_records": {
+        "db": "newbie",
+        "table": "newbie_training_records",
+        "label": "训练",
+        "columns": [
+            {"key": "group_id", "label": "群号", "required": True, "default": None, "example": "123456789", "type": "str"},
+            {"key": "semester", "label": "学期", "required": False, "default": "2026_fall", "example": "2026_fall", "type": "str"},
+            {"key": "user_id", "label": "用户QQ", "required": True, "default": None, "example": "10001", "type": "str"},
+            {"key": "admin_id", "label": "管理员QQ", "required": False, "default": "3123366945", "example": "3123366945", "type": "str"},
+            {"key": "created_at", "label": "时间", "required": False, "default": "now", "example": "2026-09-16T14:30", "type": "datetime"},
+        ],
+    },
+    "newbies_admins": {
+        "db": "newbie",
+        "table": "newbies_admins",
+        "label": "管理员",
+        "columns": [
+            {"key": "group_id", "label": "群号", "required": True, "default": None, "example": "123456789", "type": "str"},
+            {"key": "user_id", "label": "管理员QQ", "required": True, "default": None, "example": "10001", "type": "str"},
+            {"key": "created_at", "label": "设置时间", "required": False, "default": "now", "example": "2026-09-16T14:30", "type": "datetime"},
+        ],
+    },
+}
+
+
+def _import_default(default, now):
+    """把空值转换成该列的默认值。"""
+    if default is None:
+        return None
+    if default == "now":
+        return _now_iso()
+    if default == "month":
+        return now.month
+    if default == "0":
+        return 0
+    return default
+
+
 class WebApiMixin:
     """用户数据管理 WebUI 后端。"""
 
@@ -77,6 +166,8 @@ class WebApiMixin:
             ("GET", f"{prefix}/groups", self._api_groups, "群列表"),
             ("GET", f"{prefix}/suggest", self._api_suggest_users, "昵称联想用户"),
             ("GET", f"{prefix}/newbie_export", self._api_export_newbie_report, "新手任务批量导出"),
+            ("GET", f"{prefix}/import_template", self._api_import_template, "导入模板下载"),
+            ("POST", f"{prefix}/import", self._api_import_csv, "批量导入"),
 
             ("GET", f"{prefix}/running_records", self._api_list_running_records, "跑步记录列表"),
             ("POST", f"{prefix}/running_records/create", self._api_create_running_record, "新增跑步记录"),
@@ -225,6 +316,128 @@ class WebApiMixin:
         )
         report["filename"] = f"新手任务导出_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         return json_response({"status": "ok", "data": report})
+
+    # =============================================================
+    # 一键导入
+    # =============================================================
+
+    def _import_template_csv(self, table):
+        spec = IMPORT_SPECS.get(table)
+        if not spec:
+            return None
+        header = [c["label"] for c in spec["columns"]]
+        example = [c["example"] for c in spec["columns"]]
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(header)
+        writer.writerow(example)
+        return "﻿" + buf.getvalue()
+
+    def _insert_import_row(self, cursor, spec, row, now):
+        cols = spec["columns"]
+        missing = [c["label"] for c in cols if c["required"] and not row.get(c["key"])]
+        if missing:
+            return "缺少必填项: " + ", ".join(missing)
+
+        values = []
+        for c in cols:
+            key = c["key"]
+            raw = (row.get(key) or "").strip()
+            if raw == "":
+                val = _import_default(c["default"], now)
+            else:
+                try:
+                    if c["type"] == "int":
+                        val = int(raw)
+                    elif c["type"] == "float":
+                        val = float(raw)
+                    elif c["type"] == "datetime":
+                        val = _normalize_datetime(raw)
+                    else:
+                        val = raw
+                    if key == "gender":
+                        val = {"男": "male", "女": "female"}.get(val, val)
+                except (TypeError, ValueError):
+                    return f"{c['label']} 格式错误: {raw}"
+            values.append(val)
+
+        col_list = ", ".join(c["key"] for c in cols)
+        qmarks = ", ".join("?" for _ in cols)
+        try:
+            cursor.execute(
+                f"INSERT INTO {spec['table']} ({col_list}) VALUES ({qmarks})",
+                values,
+            )
+        except sqlite3.IntegrityError:
+            return "数据已存在（主键/唯一键重复）"
+        except Exception as e:
+            return f"插入失败: {e}"
+        return None
+
+    def _import_table(self, table, csv_text):
+        spec = IMPORT_SPECS.get(table)
+        if not spec:
+            return {"success": 0, "failed": 1, "errors": [{"line": 0, "reason": f"未知表: {table}"}]}
+
+        label_to_key = {c["label"]: c["key"] for c in spec["columns"]}
+        key_set = {c["key"] for c in spec["columns"]}
+
+        text = (csv_text or "").lstrip("﻿")
+        lines = list(csv.reader(io.StringIO(text)))
+        if not lines:
+            return {"success": 0, "failed": 0, "errors": []}
+
+        header = [str(h).strip() for h in lines[0]]
+        col_keys = []
+        for h in header:
+            if h in label_to_key:
+                col_keys.append(label_to_key[h])
+            elif h in key_set:
+                col_keys.append(h)
+            else:
+                col_keys.append(None)
+
+        conn = self.get_conn() if spec["db"] == "running" else self.get_newbie_conn()
+        cursor = conn.cursor()
+        now = datetime.now()
+
+        success = 0
+        failed = 0
+        errors = []
+        for idx, raw in enumerate(lines[1:], start=2):
+            if not raw or all(str(c).strip() == "" for c in raw):
+                continue
+            row = {}
+            for ci, key in enumerate(col_keys):
+                if key is None:
+                    continue
+                row[key] = str(raw[ci]).strip() if ci < len(raw) else ""
+
+            reason = self._insert_import_row(cursor, spec, row, now)
+            if reason is None:
+                success += 1
+            else:
+                failed += 1
+                errors.append({"line": idx, "reason": reason})
+
+        conn.commit()
+        conn.close()
+        return {"success": success, "failed": failed, "errors": errors}
+
+    async def _api_import_template(self):
+        table = _str(request.query.get("table"))
+        csv_text = self._import_template_csv(table)
+        if csv_text is None:
+            return json_response({"status": "error", "message": f"未知表: {table}"})
+        filename = f"{IMPORT_SPECS[table]['label']}_导入模板.csv"
+        return json_response({"status": "ok", "data": {"csv": csv_text, "filename": filename}})
+
+    async def _api_import_csv(self):
+        body = await _read_body()
+        table = _str(body.get("table"))
+        csv_text = body.get("csv_text") or body.get("csv") or ""
+        result = self._import_table(table, csv_text)
+        return json_response({"status": "ok", "data": result})
 
     # =============================================================
     # 跑步记录 running_records（running.db）

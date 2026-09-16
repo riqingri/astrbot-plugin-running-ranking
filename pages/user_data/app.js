@@ -139,6 +139,16 @@
     confirmText: $("confirmText"),
     confirmOk: $("confirmOk"),
     confirmCancel: $("confirmCancel"),
+    importBtn: $("importBtn"),
+    importModal: $("importModal"),
+    importClose: $("importClose"),
+    importTip: $("importTip"),
+    importTemplateBtn: $("importTemplateBtn"),
+    importFile: $("importFile"),
+    importRun: $("importRun"),
+    importInfo: $("importInfo"),
+    importTableWrap: $("importTableWrap"),
+    importBody: $("importBody"),
   };
 
   let toastTimer = null;
@@ -388,17 +398,99 @@
     }
   }
 
-  function downloadCsv() {
-    if (!state.exportCsv) return;
-    const blob = new Blob([state.exportCsv], { type: "text/csv;charset=utf-8;" });
+  function downloadTextFile(text, filename) {
+    const blob = new Blob([text], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = state.exportFilename;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function downloadCsv() {
+    if (!state.exportCsv) return;
+    downloadTextFile(state.exportCsv, state.exportFilename);
+  }
+
+  function openImport() {
+    const c = config();
+    els.importTip.textContent = `当前表：${c.label}。先下载模板，按表头填写（每行一条），再上传导入。`;
+    els.importFile.value = "";
+    els.importInfo.textContent = "";
+    els.importBody.innerHTML = "";
+    els.importTableWrap.hidden = true;
+    els.importModal.hidden = false;
+  }
+
+  async function downloadImportTemplate() {
+    const c = config();
+    try {
+      const data = await bridge.apiGet("import_template", { table: c.endpoint });
+      const csv = (data && data.csv) || "";
+      const filename = (data && data.filename) || `${c.label}_导入模板.csv`;
+      if (!csv) {
+        toast("生成模板失败");
+        return;
+      }
+      downloadTextFile(csv, filename);
+    } catch (e) {
+      toast("生成模板失败：" + (e && e.message ? e.message : e));
+    }
+  }
+
+  async function runImport() {
+    const c = config();
+    const file = els.importFile.files && els.importFile.files[0];
+    if (!file) {
+      toast("请先选择 CSV 文件");
+      return;
+    }
+    let text;
+    try {
+      text = await file.text();
+    } catch (e) {
+      toast("读取文件失败");
+      return;
+    }
+    els.importRun.disabled = true;
+    try {
+      const data = await bridge.apiPost("import", { table: c.endpoint, csv_text: text });
+      renderImport(data);
+    } catch (e) {
+      toast("导入失败：" + (e && e.message ? e.message : e));
+    } finally {
+      els.importRun.disabled = false;
+    }
+  }
+
+  function renderImport(data) {
+    const success = (data && data.success) || 0;
+    const failed = (data && data.failed) || 0;
+    const errors = (data && data.errors) || [];
+    els.importInfo.textContent = `成功 ${success} 条 · 失败 ${failed} 条`;
+    els.importBody.innerHTML = "";
+    if (errors.length) {
+      els.importTableWrap.hidden = false;
+      errors.forEach((e) => {
+        const tr = document.createElement("tr");
+        const td1 = document.createElement("td");
+        td1.textContent = e.line;
+        const td2 = document.createElement("td");
+        td2.textContent = e.reason;
+        tr.appendChild(td1);
+        tr.appendChild(td2);
+        els.importBody.appendChild(tr);
+      });
+    } else {
+      els.importTableWrap.hidden = true;
+    }
+    if (success > 0) {
+      load();
+      loadOverview();
+    }
   }
 
   function toDatetimeLocal(iso) {
@@ -653,6 +745,15 @@
     els.confirmCancel.onclick = () => resolveConfirm(false);
     els.confirmModal.addEventListener("click", (e) => {
       if (e.target === els.confirmModal) resolveConfirm(false);
+    });
+    els.importBtn.onclick = openImport;
+    els.importClose.onclick = () => {
+      els.importModal.hidden = true;
+    };
+    els.importTemplateBtn.onclick = downloadImportTemplate;
+    els.importRun.onclick = runImport;
+    els.importModal.addEventListener("click", (e) => {
+      if (e.target === els.importModal) els.importModal.hidden = true;
     });
   }
 

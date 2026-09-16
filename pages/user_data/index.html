@@ -18,6 +18,7 @@
     <button id="resetBtn" class="btn ghost">重置</button>
     <span class="spacer"></span>
     <button id="exportBtn" class="btn ghost">📥 导出新手任务</button>
+    <button id="importBtn" class="btn ghost">📤 一键导入</button>
     <button id="createBtn" class="btn primary">＋ 新增</button>
   </section>
 
@@ -83,6 +84,39 @@
             <tbody id="exportBody"></tbody>
           </table>
           <div class="empty" id="exportEmpty" hidden>暂无数据，先选择时间生成报表</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="importModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2>一键导入</h2>
+      <button class="close" id="importClose">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="import-tip" id="importTip"></p>
+      <div class="export-actions">
+        <button class="btn ghost" id="importTemplateBtn">⬇ 下载模板 CSV</button>
+      </div>
+      <div class="field">
+        <label>选择填写好的 CSV 文件</label>
+        <input id="importFile" type="file" accept=".csv,text/csv">
+      </div>
+      <div class="export-actions">
+        <button class="btn primary" id="importRun">导入</button>
+      </div>
+      <div class="export-result">
+        <div class="export-info" id="importInfo"></div>
+        <div class="table-wrap export-table" id="importTableWrap" hidden>
+          <table>
+            <thead>
+              <tr><th>行号</th><th>失败原因</th></tr>
+            </thead>
+            <tbody id="importBody"></tbody>
+          </table>
         </div>
       </div>
     </div>
