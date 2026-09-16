@@ -702,28 +702,39 @@ class WebApiMixin:
         if missing:
             return json_response({"status": "error", "message": f"缺少字段: {', '.join(missing)}"})
 
+        group_id = _str(body["group_id"])
         semester = _str(body.get("semester")) or "2026_fall"
+        user_id = _str(body["user_id"])
+
         nb = self.get_newbie_conn()
         cursor = nb.cursor()
-        cursor.execute(
-            """
-            INSERT INTO newbie_users (group_id, semester, user_id, nickname, gender, joined_at, points_started, points_started_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                _str(body["group_id"]),
-                semester,
-                _str(body["user_id"]),
-                _str(body.get("nickname")) or None,
-                _str(body.get("gender")) or "male",
-                _str(body.get("joined_at")) or _now_iso(),
-                _int(body.get("points_started"), 0),
-                _str(body.get("points_started_at")) or None,
-            ),
-        )
+        try:
+            cursor.execute(
+                """
+                INSERT INTO newbie_users (group_id, semester, user_id, nickname, gender, joined_at, points_started, points_started_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    group_id,
+                    semester,
+                    user_id,
+                    _str(body.get("nickname")) or None,
+                    _str(body.get("gender")) or "male",
+                    _str(body.get("joined_at")) or _now_iso(),
+                    _int(body.get("points_started"), 0),
+                    _str(body.get("points_started_at")) or None,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            nb.close()
+            return json_response({"status": "error", "message": "该用户已存在（群号 + 学期 + QQ 重复）"})
+        except Exception as e:
+            nb.close()
+            return json_response({"status": "error", "message": f"数据库错误: {e}"})
+
         nb.commit()
         nb.close()
-        return json_response({"status": "ok", "data": {"group_id": body["group_id"], "user_id": body["user_id"]}})
+        return json_response({"status": "ok", "data": {"group_id": group_id, "user_id": user_id}})
 
     async def _api_update_newbie_user(self):
         body = await _read_body()
@@ -851,7 +862,7 @@ class WebApiMixin:
         ]:
             y, w, _ = ref.isocalendar()
             key = (g, s, u, y, w)
-            if key not in recompute or ref > recompute[key]:
+            if key not in recompute or ref > recompute[key][3]:
                 recompute[key] = (g, s, u, ref)
         for g, s, u, ref in recompute.values():
             self.recompute_week_points(g, s, u, ref)
@@ -910,22 +921,30 @@ class WebApiMixin:
 
         nb = self.get_newbie_conn()
         cursor = nb.cursor()
-        cursor.execute(
-            """
-            INSERT INTO newbie_running_points (group_id, semester, user_id, year, week, month, points, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                _str(body["group_id"]),
-                _str(body.get("semester")) or "2026_fall",
-                _str(body["user_id"]),
-                _int(body["year"]),
-                _int(body["week"]),
-                _int(body.get("month"), datetime.now().month),
-                _int(body["points"]),
-                _str(body.get("created_at")) or _now_iso(),
-            ),
-        )
+        try:
+            cursor.execute(
+                """
+                INSERT INTO newbie_running_points (group_id, semester, user_id, year, week, month, points, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    _str(body["group_id"]),
+                    _str(body.get("semester")) or "2026_fall",
+                    _str(body["user_id"]),
+                    _int(body["year"]),
+                    _int(body["week"]),
+                    _int(body.get("month"), datetime.now().month),
+                    _int(body["points"]),
+                    _str(body.get("created_at")) or _now_iso(),
+                ),
+            )
+        except sqlite3.IntegrityError:
+            nb.close()
+            return json_response({"status": "error", "message": "该周积分记录已存在（群号 + 学期 + QQ + 年 + 周 重复）"})
+        except Exception as e:
+            nb.close()
+            return json_response({"status": "error", "message": f"数据库错误: {e}"})
+
         nb.commit()
         new_id = cursor.lastrowid
         nb.close()
