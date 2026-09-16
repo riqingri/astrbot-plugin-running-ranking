@@ -471,6 +471,60 @@ class NewbieMixin:
 
         return message, source_path
 
+    def recompute_week_points(self, group_id, semester, user_id, reference_time):
+        """按 confirm_newbie_running 同款规则，重算某用户某周的跑步积分（供导入使用）。"""
+        conn = self.get_newbie_conn()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT gender, points_started_at FROM newbie_users
+        WHERE group_id = ? AND semester = ? AND user_id = ?
+        """, (group_id, semester, user_id))
+        user = cursor.fetchone()
+        if not user:
+            conn.close()
+            return
+
+        rule, stage, _ = self.get_running_rule(user["gender"], user["points_started_at"], reference_time)
+        if rule is None:
+            conn.close()
+            return
+
+        week_start = reference_time - timedelta(days=reference_time.weekday())
+        week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_end = week_start + timedelta(days=7)
+
+        cursor.execute("""
+        SELECT COUNT(*) AS count FROM newbie_running_records
+        WHERE group_id = ? AND semester = ? AND user_id = ? AND created_at >= ? AND created_at < ?
+        """, (group_id, semester, user_id, week_start.isoformat(), week_end.isoformat()))
+        weekly_count = cursor.fetchone()["count"]
+
+        year, week, _ = reference_time.isocalendar()
+
+        if weekly_count >= rule["point2"]:
+            new_points = 2
+        elif weekly_count >= rule["point1"]:
+            new_points = 1
+        else:
+            new_points = 0
+
+        if new_points > 0:
+            cursor.execute("""
+            INSERT INTO newbie_running_points (group_id, semester, user_id, year, week, month, points, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(group_id, semester, user_id, year, week)
+            DO UPDATE SET points = excluded.points, created_at = excluded.created_at
+            """, (group_id, semester, user_id, year, week, reference_time.month, new_points, reference_time.isoformat()))
+        else:
+            cursor.execute("""
+            DELETE FROM newbie_running_points
+            WHERE group_id = ? AND semester = ? AND user_id = ? AND year = ? AND week = ?
+            """, (group_id, semester, user_id, year, week))
+
+        conn.commit()
+        conn.close()
+
     async def add_training(self, event: AstrMessageEvent, argument: str = ""):
         argument = str(argument or "").strip()
         if argument.startswith("/"):

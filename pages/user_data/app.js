@@ -89,6 +89,16 @@
     },
   };
 
+  // 一键导入可选择的表（含「新手跑步」这类未做成独立 Tab 的表）
+  const IMPORT_TABLES = [
+    { endpoint: "running_records", label: "跑步记录" },
+    { endpoint: "newbie_users", label: "新手用户" },
+    { endpoint: "newbie_running_records", label: "新手跑步" },
+    { endpoint: "newbie_running_points", label: "积分" },
+    { endpoint: "newbie_training_records", label: "训练" },
+    { endpoint: "newbies_admins", label: "管理员" },
+  ];
+
   const state = {
     table: "running_records",
     rows: [],
@@ -143,6 +153,7 @@
     importModal: $("importModal"),
     importClose: $("importClose"),
     importTip: $("importTip"),
+    importTable: $("importTable"),
     importTemplateBtn: $("importTemplateBtn"),
     importFile: $("importFile"),
     importRun: $("importRun"),
@@ -415,9 +426,21 @@
     downloadTextFile(state.exportCsv, state.exportFilename);
   }
 
+  function importTableLabel() {
+    const t = IMPORT_TABLES.find((x) => x.endpoint === els.importTable.value);
+    return t ? t.label : "导入";
+  }
+
   function openImport() {
-    const c = config();
-    els.importTip.textContent = `当前表：${c.label}。先下载模板，按表头填写（每行一条），再上传导入。`;
+    els.importTable.innerHTML = "";
+    IMPORT_TABLES.forEach((t) => {
+      const opt = document.createElement("option");
+      opt.value = t.endpoint;
+      opt.textContent = t.label;
+      els.importTable.appendChild(opt);
+    });
+    els.importTable.value = config().endpoint;
+    els.importTip.textContent = "先下载模板，按表头填写（每行一条），再上传导入。";
     els.importFile.value = "";
     els.importInfo.textContent = "";
     els.importBody.innerHTML = "";
@@ -426,11 +449,11 @@
   }
 
   async function downloadImportTemplate() {
-    const c = config();
+    const table = els.importTable.value;
     try {
-      const data = await bridge.apiGet("import_template", { table: c.endpoint });
+      const data = await bridge.apiGet("import_template", { table });
       const csv = (data && data.csv) || "";
-      const filename = (data && data.filename) || `${c.label}_导入模板.csv`;
+      const filename = (data && data.filename) || `${importTableLabel()}_导入模板.csv`;
       if (!csv) {
         toast("生成模板失败");
         return;
@@ -442,7 +465,7 @@
   }
 
   async function runImport() {
-    const c = config();
+    const table = els.importTable.value;
     const file = els.importFile.files && els.importFile.files[0];
     if (!file) {
       toast("请先选择 CSV 文件");
@@ -457,7 +480,7 @@
     }
     els.importRun.disabled = true;
     try {
-      const data = await bridge.apiPost("import", { table: c.endpoint, csv_text: text });
+      const data = await bridge.apiPost("import", { table, csv_text: text });
       renderImport(data);
     } catch (e) {
       toast("导入失败：" + (e && e.message ? e.message : e));

@@ -103,6 +103,18 @@ IMPORT_SPECS = {
             {"key": "points_started_at", "label": "积分开始时间", "required": False, "default": None, "example": "2026-09-16T14:30", "type": "datetime"},
         ],
     },
+    "newbie_running_records": {
+        "db": "newbie",
+        "table": "newbie_running_records",
+        "label": "新手跑步",
+        "columns": [
+            {"key": "group_id", "label": "群号", "required": True, "default": None, "example": "123456789", "type": "str"},
+            {"key": "semester", "label": "学期", "required": False, "default": "2026_fall", "example": "2026_fall", "type": "str"},
+            {"key": "user_id", "label": "用户QQ", "required": True, "default": None, "example": "10001", "type": "str"},
+            {"key": "distance", "label": "距离(km)", "required": True, "default": None, "example": "5.2", "type": "float"},
+            {"key": "created_at", "label": "时间", "required": False, "default": "now", "example": "2026-09-16T14:30", "type": "datetime"},
+        ],
+    },
     "newbie_running_points": {
         "db": "newbie",
         "table": "newbie_running_points",
@@ -154,6 +166,17 @@ def _import_default(default, now):
     if default == "0":
         return 0
     return default
+
+
+def _parse_ref_time(raw, now):
+    """把导入记录的时间解析成 datetime 作为积分重算的参考时间，失败回退 now。"""
+    raw = (raw or "").strip()
+    if not raw:
+        return now
+    try:
+        return datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return now
 
 
 class WebApiMixin:
@@ -404,6 +427,7 @@ class WebApiMixin:
         success = 0
         failed = 0
         errors = []
+        recompute = {}  # (group_id, semester, user_id, year, week) -> 参考时间
         for idx, raw in enumerate(lines[1:], start=2):
             if not raw or all(str(c).strip() == "" for c in raw):
                 continue
@@ -416,12 +440,24 @@ class WebApiMixin:
             reason = self._insert_import_row(cursor, spec, row, now)
             if reason is None:
                 success += 1
+                if spec["table"] == "newbie_running_records":
+                    ref = _parse_ref_time(row.get("created_at"), now)
+                    semester = _str(row.get("semester")) or "2026_fall"
+                    y, w, _ = ref.isocalendar()
+                    key = (_str(row.get("group_id")), semester, _str(row.get("user_id")), y, w)
+                    if key not in recompute or ref > recompute[key]:
+                        recompute[key] = ref
             else:
                 failed += 1
                 errors.append({"line": idx, "reason": reason})
 
         conn.commit()
         conn.close()
+
+        # 导入新手跑步记录后，按 confirm_newbie_running 同款规则重算并更新积分
+        for (group_id, semester, user_id, _y, _w), ref in recompute.items():
+            self.recompute_week_points(group_id, semester, user_id, ref)
+
         return {"success": success, "failed": failed, "errors": errors}
 
     async def _api_import_template(self):
