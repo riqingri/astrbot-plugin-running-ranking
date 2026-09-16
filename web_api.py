@@ -202,6 +202,11 @@ class WebApiMixin:
             ("POST", f"{prefix}/newbie_users/update", self._api_update_newbie_user, "修改新手用户"),
             ("POST", f"{prefix}/newbie_users/delete", self._api_delete_newbie_user, "删除新手用户"),
 
+            ("GET", f"{prefix}/newbie_running_records", self._api_list_newbie_running_records, "新手跑步列表"),
+            ("POST", f"{prefix}/newbie_running_records/create", self._api_create_newbie_running_record, "新增新手跑步"),
+            ("POST", f"{prefix}/newbie_running_records/update", self._api_update_newbie_running_record, "修改新手跑步"),
+            ("POST", f"{prefix}/newbie_running_records/delete", self._api_delete_newbie_running_record, "删除新手跑步"),
+
             ("GET", f"{prefix}/newbie_running_points", self._api_list_newbie_points, "新手积分列表"),
             ("POST", f"{prefix}/newbie_running_points/create", self._api_create_newbie_point, "新增新手积分"),
             ("POST", f"{prefix}/newbie_running_points/update", self._api_update_newbie_point, "修改新手积分"),
@@ -395,7 +400,47 @@ class WebApiMixin:
             return "数据已存在（主键/唯一键重复）"
         except Exception as e:
             return f"插入失败: {e}"
-        return None
+        return values
+
+    def _mirror_newbie_running_to_main(self, rows):
+        """把导入/新增的新手跑步记录镜像到主排行榜 running_records（复刻 confirm_newbie_running 双写）。"""
+        if not rows:
+            return
+
+        nicknames = {}
+        nb = self.get_newbie_conn()
+        nc = nb.cursor()
+        for r in rows:
+            key = (r["group_id"], r["semester"], r["user_id"])
+            if key in nicknames:
+                continue
+            nc.execute(
+                "SELECT nickname FROM newbie_users WHERE group_id = ? AND semester = ? AND user_id = ?",
+                key,
+            )
+            row = nc.fetchone()
+            nicknames[key] = (row["nickname"] if row and row["nickname"] else r["user_id"])
+        nb.close()
+
+        conn = self.get_conn()
+        cursor = conn.cursor()
+        for r in rows:
+            cursor.execute(
+                """
+                INSERT INTO running_records (user_id, user_name, group_id, distance, run_time, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    r["user_id"],
+                    nicknames[(r["group_id"], r["semester"], r["user_id"])],
+                    r["group_id"],
+                    r["distance"],
+                    r["created_at"],
+                    r["created_at"],
+                ),
+            )
+        conn.commit()
+        conn.close()
 
     def _import_table(self, table, csv_text):
         spec = IMPORT_SPECS.get(table)
@@ -428,6 +473,7 @@ class WebApiMixin:
         failed = 0
         errors = []
         recompute = {}  # (group_id, semester, user_id, year, week) -> 参考时间
+        mirror_rows = []  # 新手跑步导入后需要镜像到主排行榜的行
         for idx, raw in enumerate(lines[1:], start=2):
             if not raw or all(str(c).strip() == "" for c in raw):
                 continue
@@ -437,22 +483,35 @@ class WebApiMixin:
                     continue
                 row[key] = str(raw[ci]).strip() if ci < len(raw) else ""
 
-            reason = self._insert_import_row(cursor, spec, row, now)
-            if reason is None:
-                success += 1
-                if spec["table"] == "newbie_running_records":
-                    ref = _parse_ref_time(row.get("created_at"), now)
-                    semester = _str(row.get("semester")) or "2026_fall"
-                    y, w, _ = ref.isocalendar()
-                    key = (_str(row.get("group_id")), semester, _str(row.get("user_id")), y, w)
-                    if key not in recompute or ref > recompute[key]:
-                        recompute[key] = ref
-            else:
+            result = self._insert_import_row(cursor, spec, row, now)
+            if isinstance(result, str):
                 failed += 1
-                errors.append({"line": idx, "reason": reason})
+                errors.append({"line": idx, "reason": result})
+                continue
+
+            success += 1
+            if spec["table"] == "newbie_running_records":
+                vmap = {c["key"]: v for c, v in zip(spec["columns"], result)}
+                ref = _parse_ref_time(vmap.get("created_at"), now)
+                semester = _str(vmap.get("semester")) or "2026_fall"
+                y, w, _ = ref.isocalendar()
+                key = (_str(vmap.get("group_id")), semester, _str(vmap.get("user_id")), y, w)
+                if key not in recompute or ref > recompute[key]:
+                    recompute[key] = ref
+                mirror_rows.append({
+                    "group_id": _str(vmap.get("group_id")),
+                    "semester": semester,
+                    "user_id": _str(vmap.get("user_id")),
+                    "distance": vmap.get("distance"),
+                    "created_at": vmap.get("created_at"),
+                })
 
         conn.commit()
         conn.close()
+
+        # 复刻 confirm_newbie_running 的双写：镜像到主排行榜
+        if mirror_rows:
+            self._mirror_newbie_running_to_main(mirror_rows)
 
         # 导入新手跑步记录后，按 confirm_newbie_running 同款规则重算并更新积分
         for (group_id, semester, user_id, _y, _w), ref in recompute.items():
@@ -714,6 +773,125 @@ class WebApiMixin:
         nb.commit()
         nb.close()
         return json_response({"status": "ok", "data": {"group_id": group_id, "user_id": user_id}})
+
+    # =============================================================
+    # 新手跑步 newbie_running_records（newbie_points.db）
+    # =============================================================
+
+    async def _api_list_newbie_running_records(self):
+        total, rows = self._query_newbie_list("newbie_running_records", ["user_id"])
+        return json_response({"status": "ok", "data": {"total": total, "rows": rows}})
+
+    async def _api_create_newbie_running_record(self):
+        body = await _read_body()
+        required = ["group_id", "user_id", "distance"]
+        missing = [k for k in required if not _has(body, k)]
+        if missing:
+            return json_response({"status": "error", "message": f"缺少字段: {', '.join(missing)}"})
+
+        group_id = _str(body["group_id"])
+        semester = _str(body.get("semester")) or "2026_fall"
+        user_id = _str(body["user_id"])
+        distance = _float(body["distance"])
+        created_at = _normalize_datetime(body.get("created_at")) or _now_iso()
+
+        nb = self.get_newbie_conn()
+        cursor = nb.cursor()
+        cursor.execute(
+            "INSERT INTO newbie_running_records (group_id, semester, user_id, distance, created_at) VALUES (?, ?, ?, ?, ?)",
+            (group_id, semester, user_id, distance, created_at),
+        )
+        nb.commit()
+        new_id = cursor.lastrowid
+        nb.close()
+
+        self._mirror_newbie_running_to_main([
+            {"group_id": group_id, "semester": semester, "user_id": user_id, "distance": distance, "created_at": created_at},
+        ])
+        self.recompute_week_points(group_id, semester, user_id, _parse_ref_time(created_at, datetime.now()))
+
+        return json_response({"status": "ok", "data": {"id": new_id}})
+
+    async def _api_update_newbie_running_record(self):
+        body = await _read_body()
+        record_id = _int(body.get("id"))
+        if not record_id:
+            return json_response({"status": "error", "message": "缺少记录 id"})
+
+        nb = self.get_newbie_conn()
+        cursor = nb.cursor()
+        cursor.execute(
+            "SELECT group_id, semester, user_id, created_at FROM newbie_running_records WHERE id = ?",
+            (record_id,),
+        )
+        old = cursor.fetchone()
+        if not old:
+            nb.close()
+            return json_response({"status": "error", "message": "记录不存在"})
+
+        group_id = _str(body.get("group_id"))
+        semester = _str(body.get("semester")) or "2026_fall"
+        user_id = _str(body.get("user_id"))
+        distance = _float(body.get("distance"))
+        created_at = _normalize_datetime(body.get("created_at")) or _now_iso()
+
+        cursor.execute(
+            "UPDATE newbie_running_records SET group_id = ?, semester = ?, user_id = ?, distance = ?, created_at = ? WHERE id = ?",
+            (group_id, semester, user_id, distance, created_at, record_id),
+        )
+        nb.commit()
+        nb.close()
+
+        # 时间或归属可能变了：重算旧周与新周
+        now = datetime.now()
+        recompute = {}
+        for g, s, u, ref in [
+            (old["group_id"], old["semester"], old["user_id"], _parse_ref_time(old["created_at"], now)),
+            (group_id, semester, user_id, _parse_ref_time(created_at, now)),
+        ]:
+            y, w, _ = ref.isocalendar()
+            key = (g, s, u, y, w)
+            if key not in recompute or ref > recompute[key]:
+                recompute[key] = (g, s, u, ref)
+        for g, s, u, ref in recompute.values():
+            self.recompute_week_points(g, s, u, ref)
+
+        return json_response({"status": "ok", "data": {"id": record_id}})
+
+    async def _api_delete_newbie_running_record(self):
+        body = await _read_body()
+        record_id = _int(body.get("id"))
+        if not record_id:
+            return json_response({"status": "error", "message": "缺少记录 id"})
+
+        nb = self.get_newbie_conn()
+        cursor = nb.cursor()
+        cursor.execute(
+            "SELECT group_id, semester, user_id, distance, created_at FROM newbie_running_records WHERE id = ?",
+            (record_id,),
+        )
+        old = cursor.fetchone()
+        if not old:
+            nb.close()
+            return json_response({"status": "error", "message": "记录不存在"})
+
+        cursor.execute("DELETE FROM newbie_running_records WHERE id = ?", (record_id,))
+        nb.commit()
+        nb.close()
+
+        # 同步删除主排行榜镜像（与撤销逻辑一致）
+        main_conn = self.get_conn()
+        main_cursor = main_conn.cursor()
+        main_cursor.execute(
+            "DELETE FROM running_records WHERE group_id = ? AND user_id = ? AND distance = ? AND created_at = ?",
+            (old["group_id"], old["user_id"], float(old["distance"]), old["created_at"]),
+        )
+        main_conn.commit()
+        main_conn.close()
+
+        self.recompute_week_points(old["group_id"], old["semester"], old["user_id"], _parse_ref_time(old["created_at"], datetime.now()))
+
+        return json_response({"status": "ok", "data": {"id": record_id}})
 
     # =============================================================
     # 新手积分 newbie_running_points（newbie_points.db）

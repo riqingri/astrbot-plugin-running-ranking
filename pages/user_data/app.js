@@ -39,6 +39,22 @@
         { key: "points_started_at", label: "积分开始时间", type: "datetime" },
       ],
     },
+    newbie_running_records: {
+      label: "新手跑步",
+      endpoint: "newbie_running_records",
+      pkFields: ["id"],
+      autoFields: ["id"],
+      requiredFields: ["group_id", "user_id", "distance"],
+      columns: [
+        { key: "_nickname", label: "昵称", autofill: ["user_id", "group_id"], helper: true, placeholder: "输入昵称，自动填充 QQ 和群号" },
+        { key: "id", label: "ID" },
+        { key: "group_id", label: "群号" },
+        { key: "semester", label: "学期", default: "2026_fall" },
+        { key: "user_id", label: "用户 QQ" },
+        { key: "distance", label: "距离(km)", type: "number" },
+        { key: "created_at", label: "时间", type: "datetime" },
+      ],
+    },
     newbie_running_points: {
       label: "积分",
       endpoint: "newbie_running_points",
