@@ -267,15 +267,12 @@ class RunningRankPlugin(
                 image_urls=[source_path],
             )
 
+            # 输出模型回复
             if response and response.completion_text:
-                llm_reply = str(response.completion_text).strip()
-                if llm_reply:
-                    node = Node(
-                        uin=0,
-                        name="柏柏子",
-                        content=[Plain(llm_reply)]
-                    )
-                    yield event.chain_result([node])
+
+                yield event.plain_result(
+                    response.completion_text
+                )
 
         except Exception as e:
             logger.error("[RunningRank] 调用 LLM 分析跑步图片失败: %s", e)
