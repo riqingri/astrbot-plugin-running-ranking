@@ -8,6 +8,7 @@ from astrbot.api import logger
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 import astrbot.api.message_components as Comp
+from astrbot.api.message_components import Node, Plain
 
 from .database import DatabaseMixin
 from .services.identity import IdentityMixin
@@ -218,7 +219,12 @@ class RunningRankPlugin(
         elapsed = (datetime.now() - pending["created_at"]).total_seconds()
         if elapsed > self.PHOTO_WAIT_SECONDS:
             del self.pending_runs[key]
-            yield event.plain_result("⏰ 跑步凭证上传超时。\n本次跑步未记录。")
+            node = Node(
+                uin=0,
+                name="柏柏子",
+                content=[Plain("⏰ 跑步凭证上传超时。\n本次跑步未记录。")]
+            )
+            yield event.chain_result([node])
             return
 
         has_image = False
@@ -236,7 +242,12 @@ class RunningRankPlugin(
         distance = pending["distance"]
         del self.pending_runs[key]
         message, source_path = await self.confirm_newbie_running(event, distance)
-        yield event.plain_result(message)
+        node = Node(
+            uin=0,
+            name="柏柏子",
+            content=[Plain(message)]
+        )
+        yield event.chain_result([node])
 
         if not source_path or not os.path.exists(source_path):
             return
@@ -259,7 +270,12 @@ class RunningRankPlugin(
             if response and response.completion_text:
                 llm_reply = str(response.completion_text).strip()
                 if llm_reply:
-                    yield event.plain_result(llm_reply)
+                    node = Node(
+                        uin=0,
+                        name="柏柏子",
+                        content=[Plain(llm_reply)]
+                    )
+                    yield event.chain_result([node])
 
         except Exception as e:
             logger.error("[RunningRank] 调用 LLM 分析跑步图片失败: %s", e)
@@ -320,10 +336,13 @@ class RunningRankPlugin(
 
             del self.pending_images[key]
 
-            yield event.plain_result(
-                "⌛ 图片上传已超时。\n\n"
-                "请重新发送对应命令。"
+            node = Node(
+                uin=0,
+                name="柏柏子",
+                content=[Plain("⌛ 图片上传已超时。\n\n"
+                    "请重新发送对应命令。")]
             )
+            yield event.chain_result([node])
 
             return
 
@@ -392,17 +411,23 @@ class RunningRankPlugin(
                 f"获取图片文件失败: {e}"
             )
 
-            yield event.plain_result(
-                "❌ 图片读取失败，请重新发送图片。"
+            node = Node(
+                uin=0,
+                name="柏柏子",
+                content=[Plain("❌ 图片读取失败，请重新发送图片。")]
             )
+            yield event.chain_result([node])
 
             return
 
         if not source_path:
 
-            yield event.plain_result(
-                "❌ 没有获取到图片文件，请重新发送图片。"
+            node = Node(
+                uin=0,
+                name="柏柏子",
+                content=[Plain("❌ 没有获取到图片文件，请重新发送图片。")]
             )
+            yield event.chain_result([node])
 
             return
 
@@ -410,9 +435,12 @@ class RunningRankPlugin(
             source_path
         ):
 
-            yield event.plain_result(
-                "❌ 图片文件不存在，请重新发送图片。"
+            node = Node(
+                uin=0,
+                name="柏柏子",
+                content=[Plain("❌ 图片文件不存在，请重新发送图片。")]
             )
+            yield event.chain_result([node])
 
             return
 
@@ -507,15 +535,18 @@ class RunningRankPlugin(
                 "week"
             )
 
-            yield event.plain_result(
-                f"✅ 跑步记录成功！\n\n"
-                f"🏃 本次：{distance:.2f} km\n"
-                f"📆 本周累计：{week_total:.2f} km\n"
-                f"🏆 当前周榜：第 {rank} 名\n\n"
-                f"📸 跑步证明已记录。"
-                f"\n━━━━━━━━━━\n"
-                f"{ranking_text}"
+            node = Node(
+                uin=0,
+                name="柏柏子",
+                content=[Plain(f"✅ 跑步记录成功！\n\n"
+                    f"🏃 本次：{distance:.2f} km\n"
+                    f"📆 本周累计：{week_total:.2f} km\n"
+                    f"🏆 当前周榜：第 {rank} 名\n\n"
+                    f"📸 跑步证明已记录。"
+                    f"\n━━━━━━━━━━\n"
+                    f"{ranking_text}")]
             )
+            yield event.chain_result([node])
 
             # =====================================================
             # 将当前图片交给 Agent / LLM
@@ -557,9 +588,12 @@ class RunningRankPlugin(
                 # 输出模型回复
                 if response and response.completion_text:
 
-                    yield event.plain_result(
-                        response.completion_text
+                    node = Node(
+                        uin=0,
+                        name="柏柏子",
+                        content=[Plain(response.completion_text)]
                     )
+                    yield event.chain_result([node])
 
             except Exception as e:
 

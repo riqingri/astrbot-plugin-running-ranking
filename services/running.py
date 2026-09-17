@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from astrbot.api.event import AstrMessageEvent
+from astrbot.api.message_components import Node, Plain
 
 
 class RunningMixin:
@@ -32,13 +33,16 @@ class RunningMixin:
 
         except (ValueError, TypeError):
 
-            yield event.plain_result(
-                "❌ 里程格式不正确。\n\n"
-                "正确用法：\n"
-                "/跑步 5\n"
-                "/跑步 5.2\n"
-                "/跑步 10.5"
+            node = Node(
+                uin=0,
+                name="柏柏子",
+                content=[Plain("❌ 里程格式不正确。\n\n"
+                    "正确用法：\n"
+                    "/跑步 5\n"
+                    "/跑步 5.2\n"
+                    "/跑步 10.5")]
             )
+            yield event.chain_result([node])
 
             return
 
@@ -48,17 +52,23 @@ class RunningMixin:
 
         if distance_value <= 0:
 
-            yield event.plain_result(
-                "❌ 跑步距离必须大于 0 km。"
+            node = Node(
+                uin=0,
+                name="柏柏子",
+                content=[Plain("❌ 跑步距离必须大于 0 km。")]
             )
+            yield event.chain_result([node])
 
             return
 
         if distance_value > 200:
 
-            yield event.plain_result(
-                "❌ 单次跑步距离不能超过 200 km。"
+            node = Node(
+                uin=0,
+                name="柏柏子",
+                content=[Plain("❌ 单次跑步距离不能超过 200 km。")]
             )
+            yield event.chain_result([node])
 
             return
 
@@ -93,12 +103,15 @@ class RunningMixin:
             )
         }
 
-        yield event.plain_result(
-            f"🏃 收到你的 {distance_value:.2f} km 跑步记录。\n\n"
-            f"📸 请在 5 分钟内发送一张跑步证明图片。\n\n"
-            f"⚠️ 收到图片后才会正式计入排行榜。\n"
-            f"没有图片则不会记录本次跑步。"
+        node = Node(
+            uin=0,
+            name="柏柏子",
+            content=[Plain(f"🏃 收到你的 {distance_value:.2f} km 跑步记录。\n\n"
+                f"📸 请在 5 分钟内发送一张跑步证明图片。\n\n"
+                f"⚠️ 收到图片后才会正式计入排行榜。\n"
+                f"没有图片则不会记录本次跑步。")]
         )
+        yield event.chain_result([node])
 
     # =============================================================
     # /我的里程
@@ -211,13 +224,16 @@ class RunningMixin:
 
         conn.close()
 
-        yield event.plain_result(
-            f"🏃 {user_name} 的跑步数据\n\n"
-            f"📅 今日：{today_total:.2f} km\n"
-            f"📆 本周：{week_total:.2f} km\n"
-            f"🗓️ 本月：{month_total:.2f} km\n"
-            f"👑 总里程：{total:.2f} km"
+        node = Node(
+            uin=0,
+            name="柏柏子",
+            content=[Plain(f"🏃 {user_name} 的跑步数据\n\n"
+                f"📅 今日：{today_total:.2f} km\n"
+                f"📆 本周：{week_total:.2f} km\n"
+                f"🗓️ 本月：{month_total:.2f} km\n"
+                f"👑 总里程：{total:.2f} km")]
         )
+        yield event.chain_result([node])
 
     # =============================================================
     # /跑量接龙帮助
@@ -232,9 +248,12 @@ class RunningMixin:
         group_id = self.get_group_id(event)
         message = self.build_unified_help_message(user_id, group_id)
 
-        yield event.plain_result(
-            message
+        node = Node(
+            uin=0,
+            name="柏柏子",
+            content=[Plain(message)]
         )
+        yield event.chain_result([node])
 
     # =============================================================
     # 查询排行榜
@@ -464,9 +483,12 @@ class RunningMixin:
             ranking_type
         )
 
-        yield event.plain_result(
-            ranking_text
+        node = Node(
+            uin=0,
+            name="柏柏子",
+            content=[Plain(ranking_text)]
         )
+        yield event.chain_result([node])
 
     # =============================================================
     # /今日榜
@@ -600,9 +622,12 @@ class RunningMixin:
 
             conn.close()
 
-            yield event.plain_result(
-                "❌ 你还没有跑步记录。"
+            node = Node(
+                uin=0,
+                name="柏柏子",
+                content=[Plain("❌ 你还没有跑步记录。")]
             )
+            yield event.chain_result([node])
 
             return
 
@@ -651,7 +676,10 @@ class RunningMixin:
 
         conn.close()
 
-        yield event.plain_result(
-            f"🗑️ 已撤销最近一次跑步记录。\n\n"
-            f"删除里程：{float(distance):.2f} km"
+        node = Node(
+            uin=0,
+            name="柏柏子",
+            content=[Plain(f"🗑️ 已撤销最近一次跑步记录。\n\n"
+                f"删除里程：{float(distance):.2f} km")]
         )
+        yield event.chain_result([node])
