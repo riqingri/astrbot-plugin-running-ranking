@@ -579,7 +579,7 @@ class RunningRankPlugin(
                 # 调用多模态模型
                 response = await self.context.llm_generate(
                     chat_provider_id=chat_provider_id,
-                    prompt="你是一个爱水群爱吐槽的跑团组织者，跑团同学发送了一张图片，请看看这张图片是否是跑步证明？如果不是，就谴责他乱发图片，简单吐槽一下图片内容；如果是，就简单分析一下图片内容，找到简单夸奖或者聊聊图片的配速和地图或者其他图片信息。回复30个字以内，禁止使用markdown语法，使回复在一个QQ消息气泡中显得自然",
+                    prompt="你是一个爱水群爱吐槽的跑团组织者，跑团同学发送了一张图片，请看看这张图片是否是跑步证明？如果不是，就谴责他乱发图片，简单吐槽一下图片内容；如果是，就简单分析一下图片内容，找到简单夸奖或者聊聊图片的配速和地图或者其他图片信息。回复30个字以内，禁止使用markdown语法，使回复在一个QQ消息气泡中显得自然。示范：“数据型” → 这配速，今天偷偷开挂了？“地图型” → 这路线绕得，蚂蚁看了都迷路“时间型” → 这点还在跑，你是真不睡啊“跑团型” → 又一个不声不响开始卷的“细节型” → 这轨迹最后一下是迷路了吗“吐槽型” → 跑步证明呢？你这明显是在发旅游攻略“夸奖型” → 稳稳拿下，今天状态不错嘛。但是注意！不要直接套用示例，要根据图片内容进行分析和吐槽生成新鲜有趣的内容，回复中不要出现示例中的文字。",
                     image_urls=[
                         source_path
                     ]
@@ -588,12 +588,9 @@ class RunningRankPlugin(
                 # 输出模型回复
                 if response and response.completion_text:
 
-                    node = Node(
-                        uin=0,
-                        name="柏柏子",
-                        content=[Plain(response.completion_text)]
+                    yield event.plain_result(
+                        response.completion_text
                     )
-                    yield event.chain_result([node])
 
             except Exception as e:
 
