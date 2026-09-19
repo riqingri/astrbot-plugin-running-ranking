@@ -9,6 +9,8 @@ from astrbot.api.event import AstrMessageEvent
 import astrbot.api.message_components as Comp
 from astrbot.api.message_components import Node, Plain
 
+from .identity import SUPER_ADMINS
+
 
 NEWBIE_EXPORT_COLUMNS = [
     ("group_id", "群号"),
@@ -146,7 +148,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("你已经参加了本学期的新手任务。\n无需重复报名。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             conn.close()
             return
 
@@ -169,7 +171,7 @@ class NewbieMixin:
                 f"/开始积分 @{nickname}\n\n"
                 "管理员开始积分后，你才能使用 /跑步积分 命令。")]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     async def cancel_newbie(self, event: AstrMessageEvent, argument: str = ""):
         group_id = self.get_group_id(event)
@@ -181,7 +183,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 只有管理员可以撤销报名。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         target_user_id = self.get_target_user_id(event, argument)
@@ -191,7 +193,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 请 @ 一位群友或输入 QQ 号。\n\n例如：\n/撤销报名 @张三\n或\n/撤销报名 123456789")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         conn = self.get_newbie_conn()
@@ -209,7 +211,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 该成员尚未报名新手任务，无法撤销报名。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         cursor.execute("""
@@ -239,7 +241,7 @@ class NewbieMixin:
             content=[Plain(f"✅ 已撤销 {user['nickname'] or target_user_id} 的报名\n\n"
                 "该成员的本学期新手任务报名、跑步记录、训练记录和积分已清空。")]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     async def start_points(self, event: AstrMessageEvent, argument: str = ""):
         group_id = self.get_group_id(event)
@@ -251,7 +253,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 只有管理员可以开始积分。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         target_user_id = self.get_target_user_id(event, argument)
@@ -261,7 +263,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 请 @ 一位群友或输入 QQ 号。\n\n例如：\n/开始积分 @张三\n或\n/开始积分 123456789")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         conn = self.get_newbie_conn()
@@ -278,7 +280,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 该成员尚未加入新手任务。\n请先让该成员使用：\n/加入新手任务 男\n或\n/加入新手任务 女")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         if user["points_started"] == 1:
@@ -289,7 +291,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain(f"⚠️ {display_name} 已经开始积分，无需重复操作。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         cursor.execute("""
@@ -313,7 +315,7 @@ class NewbieMixin:
                 f"第4阶段：12-16周\n\n"
                 f"从现在开始，该成员可以使用：\n/跑步积分 距离\n\n例如：\n/跑步积分 5km")]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     async def running_points_command(self, event: AstrMessageEvent, distance_text: str):
         group_id = self.get_group_id(event)
@@ -326,7 +328,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 距离格式错误。\n\n例如：\n/跑步积分 5km")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         distance = float(match.group(1))
@@ -344,7 +346,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 你还没有加入新手任务。\n\n请先使用：\n/加入新手任务 男\n或\n/加入新手任务 女")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         if user["points_started"] != 1:
@@ -354,7 +356,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("⏳ 你已经报名新手任务，但管理员尚未为你开始积分。\n\n请等待管理员使用：\n/开始积分 @你")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         now = datetime.now()
@@ -366,7 +368,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 该成员尚未开始积分，无法计算当前阶段规则。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         required_distance = rule["distance"]
@@ -377,7 +379,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain(f"⚠️ 你处于新手任务的第{stage}阶段，当前要求每次跑步距离至少 {required_distance}km。如果跑步距离未达到{required_distance}km，请使用 /跑步 命令跑量接龙，本次跑步记录不会计入新手任务。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         key = f"{group_id}:{user_id}"
@@ -390,7 +392,7 @@ class NewbieMixin:
             content=[Plain(f"你处于新手任务的第{stage}阶段，距离下一阶段还有{days_to_next_stage}天\n"
                 f"🏃 已提交 {distance}km 跑步任务。\n\n请在 {self.PHOTO_WAIT_SECONDS // 60} 分钟内上传跑步截图或照片。\n\n⚠️ 只有收到图片凭证后，本次跑步才会正式记录并计算积分。")]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     async def confirm_newbie_running(self, event: AstrMessageEvent, distance: float) -> Tuple[str, str]:
         group_id = self.get_group_id(event)
@@ -610,7 +612,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 只有管理员可以记录训练。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         target_user_id = self.get_target_user_id(event, argument)
@@ -620,7 +622,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 请 @ 一位群友或输入 QQ 号。\n\n例如：\n/参加训练 @张三")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         conn = self.get_newbie_conn()
@@ -637,7 +639,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 该成员尚未参加新手任务。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         cursor.execute("""
@@ -676,7 +678,7 @@ class NewbieMixin:
             name="柏柏子",
             content=[Plain(message)]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     async def set_admin(self, event: AstrMessageEvent, argument: str = ""):
         group_id = self.get_group_id(event)
@@ -687,7 +689,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 只有超级管理员可以设置管理员。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         target_user_id = self.get_target_user_id(event, argument)
@@ -697,7 +699,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 请 @ 群友或输入 QQ 号。\n\n例如：\n/管理员设置 123456789")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         conn = self.get_newbie_conn()
@@ -715,7 +717,7 @@ class NewbieMixin:
             name="柏柏子",
             content=[Plain(f"🎉 {nickname} 成为管理员\n\n👮 当前管理员：\n{admin_list}")]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     def get_admin_list(self, group_id: str) -> str:
         conn = self.get_newbie_conn()
@@ -725,12 +727,13 @@ class NewbieMixin:
         """, (group_id,))
         admin_ids = [row["user_id"] for row in cursor.fetchall()]
         conn.close()
-        if "3123366945" not in admin_ids:
-            admin_ids.insert(0, "3123366945")
+        for super_admin in reversed(SUPER_ADMINS):
+            if super_admin not in admin_ids:
+                admin_ids.insert(0, super_admin)
         lines = []
         for index, admin_id in enumerate(admin_ids, start=1):
             nickname = self.get_user_nickname(group_id, admin_id)
-            role = "超级管理员" if admin_id == "3123366945" else "管理员"
+            role = "超级管理员" if admin_id in SUPER_ADMINS else "管理员"
             lines.append(f"{index}. {nickname} （{role}）")
         return "\n".join(lines)
 
@@ -742,7 +745,7 @@ class NewbieMixin:
             name="柏柏子",
             content=[Plain("👮 当前管理员\n━━━━━━━━━━━━━━\n" + result)]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     def get_user_stats(self, group_id: str, user_id: str) -> Dict:
         conn = self.get_newbie_conn()
@@ -904,7 +907,7 @@ class NewbieMixin:
             name="柏柏子",
             content=[Plain("📊 新手任务积分排行榜\n━━━━━━━━━━━━━━\n" + leaderboard)]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     async def my_points(self, event: AstrMessageEvent):
         group_id = self.get_group_id(event)
@@ -922,7 +925,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("你还没有参加新手任务。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
         stats = self.get_user_stats(group_id, user_id)
         status = "🟢 已开始积分" if user["points_started"] == 1 else "🟡 等待管理员开始积分"
@@ -939,7 +942,7 @@ class NewbieMixin:
                 f"🏋️ 训练积分：{stats['training_points']} 分\n"
                 f"⭐ 总积分：{stats['total_points']} 分")]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     async def undo_training(self, event: AstrMessageEvent, argument: str = ""):
         group_id = self.get_group_id(event)
@@ -950,7 +953,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 只有管理员可以撤销训练记录。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         target_user_id = self.get_target_user_id(event, argument)
@@ -960,7 +963,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 请 @ 一位群友或输入 QQ 号。\n\n例如：\n/撤销训练 @张三")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         before_stats = self.get_user_stats(group_id, target_user_id)
@@ -970,7 +973,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 该成员没有可以撤销的训练记录。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         conn = self.get_newbie_conn()
@@ -988,7 +991,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 没有找到训练记录。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         cursor.execute("DELETE FROM newbie_training_records WHERE id = ?", (training["id"],))
@@ -1007,7 +1010,7 @@ class NewbieMixin:
                 f"⭐ 总积分变化：{point_change:+d}\n\n"
                 f"━━━━━━━━━━━━━━\n📊 新手任务积分排行榜\n━━━━━━━━━━━━━━\n{leaderboard}")]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     async def undo_newbie_running(self, event: AstrMessageEvent, argument: str = ""):
         group_id = self.get_group_id(event)
@@ -1018,7 +1021,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 只有管理员可以撤销跑步记录。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         target_user_id = self.get_target_user_id(event, argument)
@@ -1028,7 +1031,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 请 @ 一位群友或输入 QQ 号。\n\n例如：\n/撤销跑步 @张三")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         conn = self.get_newbie_conn()
@@ -1046,7 +1049,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 该成员没有可以撤销的跑步记录。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         before_stats = self.get_user_stats(group_id, target_user_id)
@@ -1095,7 +1098,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 找不到该成员的新手任务信息。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         rule, stage, days_to_next_stage = self.get_running_rule(user["gender"], user["points_started_at"], running_time)
@@ -1106,7 +1109,7 @@ class NewbieMixin:
                 name="柏柏子",
                 content=[Plain("❌ 该成员尚未开始积分，无法计算撤销后的阶段规则。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
             return
 
         if weekly_count >= rule["point2"]:
@@ -1144,7 +1147,7 @@ class NewbieMixin:
                 f"⭐ 总积分变化：{point_change:+d}\n\n"
                 f"━━━━━━━━━━━━━━\n📊 新手任务积分排行榜\n━━━━━━━━━━━━━━\n{leaderboard}")]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     def build_unified_help_message(self, user_id: str, group_id: str) -> str:
         lines = [
@@ -1198,4 +1201,4 @@ class NewbieMixin:
             name="柏柏子",
             content=[Plain(message)]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))

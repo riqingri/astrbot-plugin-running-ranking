@@ -6,8 +6,65 @@ from astrbot.api.event import AstrMessageEvent
 import astrbot.api.message_components as Comp
 
 
+# =============================================================
+# 超级管理员列表（可自行修改）
+#
+# 一行一个 ID，支持两种格式：
+#   1. QQ 号   —— 用于 OneBot（aiocqhttp）平台
+#   2. openid  —— 用于 QQ 官方机器人（qq_official）平台
+#
+# 如何获取 QQ 官方机器人上的 openid：
+#   让管理员在机器人所在群里发一条消息，然后到 AstrBot 后台的
+#   运行日志里查看该条消息的 sender / user_id 字段，即为 openid。
+# =============================================================
+SUPER_ADMINS = [
+    "3123366945",  # OneBot 平台超级管理员 QQ 号
+    # —— QQ 官方机器人（qq_official）——
+    "8157C2A69B208B96383BB2BF58023633",  # 私聊 openid（user_openid）
+    # 群聊里的管理员是另一个 openid（member_openid，每个群都不同）：
+    # 让管理员在「群里」发条消息，按同样方法查日志得到后填在下面。
+    # "xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+]
+
+
 class IdentityMixin:
     """身份识别、昵称与权限判断。"""
+
+    # =============================================================
+    # 平台识别
+    # =============================================================
+
+    def get_platform_name(self, event: AstrMessageEvent) -> str:
+        try:
+            return str(event.get_platform_name())
+        except Exception:
+            return ""
+
+    def is_qq_official(self, event: AstrMessageEvent) -> bool:
+        """QQ 官方机器人（频道/群机器人），不含 OneBot。"""
+        return self.get_platform_name(event) in (
+            "qq_official",
+            "qq_official_webhook",
+        )
+
+    def adapt_reply(self, event: AstrMessageEvent, node):
+        """按平台适配回复消息链。
+
+        QQ 官方机器人不支持合并转发（Node），把「柏柏子」转发节点
+        降级为纯文本；其它平台（如 OneBot v11）保留原样。
+        """
+        if not self.is_qq_official(event):
+            return [node]
+
+        if isinstance(node, Comp.Node):
+            texts = []
+            for component in getattr(node, "content", None) or []:
+                text = getattr(component, "text", None)
+                if text is not None:
+                    texts.append(str(text))
+            return [Comp.Plain("".join(texts))]
+
+        return [node]
 
     def get_group_id(self, event: AstrMessageEvent) -> str:
         try:
@@ -28,7 +85,7 @@ class IdentityMixin:
         return self.get_user_id(event)
 
     def is_super_admin(self, user_id: str) -> bool:
-        return str(user_id) == "3123366945"
+        return str(user_id) in SUPER_ADMINS
 
     def is_admin(self, group_id: str, user_id: str) -> bool:
         if self.is_super_admin(user_id):
@@ -64,6 +121,17 @@ class IdentityMixin:
                                 return str(value)
         except Exception:
             pass
+
+        # QQ 官方机器人可能把 @ 以 <@!id> / <@id> 文本形式下发，
+        # 其中 id 是 openid（字母数字混合），而非纯数字 QQ 号。
+        try:
+            text = self.extract_plain_text(event)
+            match = re.search(r"<@!?([^>\s]+)>", text)
+            if match:
+                return match.group(1)
+        except Exception:
+            pass
+
         return None
 
     def get_target_user_id(self, event: AstrMessageEvent, argument: str) -> Optional[str]:

@@ -42,7 +42,7 @@ class RunningMixin:
                     "/跑步 5.2\n"
                     "/跑步 10.5")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
 
             return
 
@@ -57,7 +57,7 @@ class RunningMixin:
                 name="柏柏子",
                 content=[Plain("❌ 跑步距离必须大于 0 km。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
 
             return
 
@@ -68,7 +68,7 @@ class RunningMixin:
                 name="柏柏子",
                 content=[Plain("❌ 单次跑步距离不能超过 200 km。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
 
             return
 
@@ -111,7 +111,7 @@ class RunningMixin:
                 f"⚠️ 收到图片后才会正式计入排行榜。\n"
                 f"没有图片则不会记录本次跑步。")]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     # =============================================================
     # /我的里程
@@ -233,7 +233,7 @@ class RunningMixin:
                 f"🗓️ 本月：{month_total:.2f} km\n"
                 f"👑 总里程：{total:.2f} km")]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     # =============================================================
     # /跑量接龙帮助
@@ -253,7 +253,7 @@ class RunningMixin:
             name="柏柏子",
             content=[Plain(message)]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     # =============================================================
     # 查询排行榜
@@ -488,7 +488,7 @@ class RunningMixin:
             name="柏柏子",
             content=[Plain(ranking_text)]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
 
     # =============================================================
     # /今日榜
@@ -627,7 +627,7 @@ class RunningMixin:
                 name="柏柏子",
                 content=[Plain("❌ 你还没有跑步记录。")]
             )
-            yield event.chain_result([node])
+            yield event.chain_result(self.adapt_reply(event, node))
 
             return
 
@@ -682,4 +682,4 @@ class RunningMixin:
             content=[Plain(f"🗑️ 已撤销最近一次跑步记录。\n\n"
                 f"删除里程：{float(distance):.2f} km")]
         )
-        yield event.chain_result([node])
+        yield event.chain_result(self.adapt_reply(event, node))
