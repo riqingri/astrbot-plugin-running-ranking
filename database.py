@@ -126,6 +126,20 @@ class DatabaseMixin:
         )
         """)
 
+        # ---------------------------------------------------------
+        # openid ↔ QQ 号 映射
+        # qq_official 平台拿到的是 openid，旧数据库（OneBot）存的是 QQ 号，
+        # 这里用一张表把两者联系起来，查询/写库时统一解析回 QQ 号。
+        # ---------------------------------------------------------
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS qq_openid_map (
+            openid TEXT PRIMARY KEY,
+            qq_id TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS newbie_running_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
