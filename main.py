@@ -224,7 +224,7 @@ class RunningRankPlugin(
                 name="柏柏子",
                 content=[Plain("⏰ 跑步凭证上传超时。\n本次跑步未记录。")]
             )
-            yield event.chain_result(self.adapt_reply(event, node))
+            yield self.reply_result(event, node)
             return
 
         has_image = False
@@ -247,7 +247,7 @@ class RunningRankPlugin(
             name="柏柏子",
             content=[Plain(message)]
         )
-        yield event.chain_result(self.adapt_reply(event, node))
+        yield self.reply_result(event, node)
 
         if not source_path or not os.path.exists(source_path):
             return
@@ -270,9 +270,7 @@ class RunningRankPlugin(
             # 输出模型回复
             if response and response.completion_text:
 
-                yield event.plain_result(
-                    response.completion_text
-                )
+                yield self.reply_text(event, response.completion_text)
 
         except Exception as e:
             logger.error("[RunningRank] 调用 LLM 分析跑步图片失败: %s", e)
@@ -339,7 +337,7 @@ class RunningRankPlugin(
                 content=[Plain("⌛ 图片上传已超时。\n\n"
                     "请重新发送对应命令。")]
             )
-            yield event.chain_result(self.adapt_reply(event, node))
+            yield self.reply_result(event, node)
 
             return
 
@@ -413,7 +411,7 @@ class RunningRankPlugin(
                 name="柏柏子",
                 content=[Plain("❌ 图片读取失败，请重新发送图片。")]
             )
-            yield event.chain_result(self.adapt_reply(event, node))
+            yield self.reply_result(event, node)
 
             return
 
@@ -424,7 +422,7 @@ class RunningRankPlugin(
                 name="柏柏子",
                 content=[Plain("❌ 没有获取到图片文件，请重新发送图片。")]
             )
-            yield event.chain_result(self.adapt_reply(event, node))
+            yield self.reply_result(event, node)
 
             return
 
@@ -437,7 +435,7 @@ class RunningRankPlugin(
                 name="柏柏子",
                 content=[Plain("❌ 图片文件不存在，请重新发送图片。")]
             )
-            yield event.chain_result(self.adapt_reply(event, node))
+            yield self.reply_result(event, node)
 
             return
 
@@ -543,7 +541,7 @@ class RunningRankPlugin(
                     f"\n━━━━━━━━━━\n"
                     f"{ranking_text}")]
             )
-            yield event.chain_result(self.adapt_reply(event, node))
+            yield self.reply_result(event, node)
 
             # =====================================================
             # 将当前图片交给 Agent / LLM
@@ -585,9 +583,7 @@ class RunningRankPlugin(
                 # 输出模型回复
                 if response and response.completion_text:
 
-                    yield event.plain_result(
-                        response.completion_text
-                    )
+                    yield self.reply_text(event, response.completion_text)
 
             except Exception as e:
 

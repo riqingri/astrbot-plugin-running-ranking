@@ -66,6 +66,32 @@ class IdentityMixin:
 
         return [node]
 
+    def reply_result(self, event: AstrMessageEvent, node):
+        """构造按平台适配后的回复结果（消息链）。"""
+        result = event.chain_result(self.adapt_reply(event, node))
+        return self._force_plain_content(event, result)
+
+    def reply_text(self, event: AstrMessageEvent, text: str):
+        """构造按平台适配后的回复结果（纯文本）。"""
+        result = event.plain_result(text)
+        return self._force_plain_content(event, result)
+
+    def _force_plain_content(self, event: AstrMessageEvent, result):
+        """QQ 官方机器人：尽量强制纯文本 content 模式（msg_type 0）。
+
+        群聊不接受原生 markdown（msg_type 2），否则插件回复会被平台
+        拒绝、无法送达 QQ 客户端。较新版本提供 use_markdown() 方法，
+        更旧版本只有 use_markdown_ 字段或完全不支持，这里做兼容，能设则设。
+        """
+        if not self.is_qq_official(event):
+            return result
+        setter = getattr(result, "use_markdown", None)
+        if callable(setter):
+            setter(False)
+        elif hasattr(result, "use_markdown_"):
+            result.use_markdown_ = False
+        return result
+
     def get_group_id(self, event: AstrMessageEvent) -> str:
         try:
             return str(event.get_group_id())
