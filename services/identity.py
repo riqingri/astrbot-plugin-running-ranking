@@ -114,6 +114,11 @@ class IdentityMixin:
         except Exception:
             return "private"
         if self.is_qq_official(event):
+            if group_id not in GROUP_ID_MAP:
+                logger.warning(
+                    "[RunningRank] 未映射的 group_openid，请填入 GROUP_ID_MAP：%s",
+                    group_id,
+                )
             group_id = GROUP_ID_MAP.get(group_id, group_id)
         return group_id
 
