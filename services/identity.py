@@ -138,8 +138,9 @@ class IdentityMixin:
 
         1. OneBot：本身就是 QQ 号，原样返回。
         2. qq_official：openid → qq_openid_map 查映射；
-           查不到再按群昵称在 newbie_users 里找老 QQ 号并写入映射；
-           都找不到（全新用户）则退回 openid 作为其 id。
+           查不到再按昵称（sender_name / 群名片 / QQ昵称 等多种候选）
+           在 newbie_users 里找老 QQ 号并写入映射；都找不到（全新用户）
+           则退回 openid 作为其 id。
         """
         raw_id = str(event.get_sender_id())
 
@@ -150,24 +151,87 @@ class IdentityMixin:
         if qq_id:
             return qq_id
 
-        try:
-            nickname = event.get_sender_name()
-        except Exception:
-            nickname = None
+        group_id = self.get_group_id(event)
+        candidates = self._candidate_nicknames(event)
 
-        qq_id = self.search_qq_id_by_nickname(
-            nickname,
-            self.get_group_id(event),
-        )
-        if qq_id:
-            self.save_id_mapping(raw_id, qq_id)
-            logger.info(
-                "[RunningRank] 已通过群昵称 %s 绑定 openid %s -> QQ %s",
-                nickname, raw_id, qq_id,
-            )
-            return qq_id
+        for nickname in candidates:
+            qq_id = self.search_qq_id_by_nickname(nickname, group_id)
+            if qq_id:
+                self.save_id_mapping(raw_id, qq_id)
+                logger.info(
+                    "[RunningRank] 已通过昵称 %r 绑定 openid %s -> QQ %s",
+                    nickname, raw_id, qq_id,
+                )
+                return qq_id
 
+        self._diagnose_binding(raw_id, candidates, group_id)
         return raw_id
+
+    def _candidate_nicknames(self, event: AstrMessageEvent):
+        """收集可能的昵称候选：sender_name、群名片 card、QQ昵称 nickname。"""
+        names = []
+
+        try:
+            name = event.get_sender_name()
+            if name:
+                names.append(str(name))
+        except Exception:
+            pass
+
+        try:
+            sender = getattr(event.message_obj, "sender", None)
+            if isinstance(sender, dict):
+                for key in ("card", "nickname", "user_name", "name"):
+                    value = sender.get(key)
+                    if value:
+                        names.append(str(value))
+            elif sender is not None:
+                for key in ("card", "nickname"):
+                    value = getattr(sender, key, None)
+                    if value:
+                        names.append(str(value))
+        except Exception:
+            pass
+
+        seen = set()
+        result = []
+        for name in names:
+            if name not in seen:
+                seen.add(name)
+                result.append(name)
+        return result
+
+    def _diagnose_binding(self, openid: str, candidates, group_id: str) -> None:
+        """绑定失败时，用宽松条件查一遍 newbie_users，定位为什么按昵称找不到。
+
+        每个 openid 只诊断一次，避免刷屏；重载插件后重新诊断。
+        """
+        diagnosed = getattr(self, "_diagnosed_openids", None)
+        if diagnosed is None:
+            diagnosed = set()
+            self._diagnosed_openids = diagnosed
+        if openid in diagnosed:
+            return
+        diagnosed.add(openid)
+
+        conn = self.get_newbie_conn()
+        cursor = conn.cursor()
+        for nickname in candidates:
+            cursor.execute(
+                "SELECT user_id, group_id, semester FROM newbie_users WHERE nickname = ?",
+                (nickname,),
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                logger.warning(
+                    "[RunningRank] 诊断：昵称 %r 在 newbie_users 里没有记录", nickname)
+                continue
+            for row in rows:
+                logger.warning(
+                    "[RunningRank] 诊断：昵称 %r 命中 user_id=%s group_id=%s semester=%s（当前解析 group_id=%s）",
+                    nickname, row["user_id"], row["group_id"], row["semester"], group_id,
+                )
+        conn.close()
 
     def lookup_qq_id(self, openid: str) -> Optional[str]:
         conn = self.get_newbie_conn()
