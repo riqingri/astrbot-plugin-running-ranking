@@ -153,6 +153,7 @@ class IdentityMixin:
 
         group_id = self.get_group_id(event)
         candidates = self._candidate_nicknames(event)
+        self._log_candidates_once(raw_id, candidates)
 
         for nickname in candidates:
             qq_id = self.search_qq_id_by_nickname(nickname, group_id)
@@ -168,15 +169,8 @@ class IdentityMixin:
         return raw_id
 
     def _candidate_nicknames(self, event: AstrMessageEvent):
-        """收集可能的昵称候选：sender_name、群名片 card、QQ昵称 nickname。"""
+        """收集可能的昵称候选，群名片 card（群昵称）优先，再试 QQ昵称 / sender_name。"""
         names = []
-
-        try:
-            name = event.get_sender_name()
-            if name:
-                names.append(str(name))
-        except Exception:
-            pass
 
         try:
             sender = getattr(event.message_obj, "sender", None)
@@ -193,6 +187,13 @@ class IdentityMixin:
         except Exception:
             pass
 
+        try:
+            name = event.get_sender_name()
+            if name:
+                names.append(str(name))
+        except Exception:
+            pass
+
         seen = set()
         result = []
         for name in names:
@@ -200,6 +201,18 @@ class IdentityMixin:
                 seen.add(name)
                 result.append(name)
         return result
+
+    def _log_candidates_once(self, openid: str, candidates) -> None:
+        """把该 openid 当前能拿到的昵称候选打印一次，方便确认群名片是否可得。"""
+        logged = getattr(self, "_logged_candidates", None)
+        if logged is None:
+            logged = set()
+            self._logged_candidates = logged
+        if openid in logged:
+            return
+        logged.add(openid)
+        logger.warning(
+            "[RunningRank] 诊断：openid %s 可用昵称候选=%r", openid, candidates)
 
     def _diagnose_binding(self, openid: str, candidates, group_id: str) -> None:
         """绑定失败时，用宽松条件查一遍 newbie_users，定位为什么按昵称找不到。
