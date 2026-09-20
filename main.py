@@ -114,6 +114,7 @@ class RunningRankPlugin(
             "月榜": "month_rank",
             "总榜": "total_rank",
             "撤销": "undo_self_running",
+            "绑定": "bind_qq",
         }
 
         # WebUI 后端路由

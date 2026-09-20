@@ -270,6 +270,53 @@ class IdentityMixin:
         conn.commit()
         conn.close()
 
+    def set_id_mapping(self, openid: str, qq_id: str) -> None:
+        """强制写入/覆盖 openid → QQ 号映射（手动绑定用，可纠正错误的自动绑定）。"""
+        conn = self.get_newbie_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO qq_openid_map (openid, qq_id, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (openid, qq_id, datetime.now().isoformat()),
+        )
+        conn.commit()
+        conn.close()
+
+    async def bind_qq(self, event: AstrMessageEvent, argument: str = ""):
+        """手动绑定：/绑定 QQ号，把当前 openid 绑定到指定 QQ 号。
+
+        用于 QQ 官方机器人拿不到群名片、自动按昵称绑定不到或绑错的情况。
+        """
+        openid = str(event.get_sender_id())
+        qq_id = self.extract_qq_id(argument)
+
+        if not qq_id:
+            node = Comp.Node(
+                uin=0,
+                name="柏柏子",
+                content=[Comp.Plain(
+                    "❌ 请填写要绑定的 QQ 号。\n\n"
+                    "例如：\n/绑定 123456789"
+                )],
+            )
+            yield self.reply_result(event, node)
+            return
+
+        self.set_id_mapping(openid, qq_id)
+
+        node = Comp.Node(
+            uin=0,
+            name="柏柏子",
+            content=[Comp.Plain(
+                f"✅ 绑定成功！\n\n"
+                f"openid {openid} → QQ {qq_id}\n\n"
+                f"之后你的跑步/积分都会记到这个 QQ 号名下。"
+            )],
+        )
+        yield self.reply_result(event, node)
+
     def search_qq_id_by_nickname(self, nickname: Optional[str], group_id: str = "private") -> Optional[str]:
         """按群昵称 + 群号在 newbie_users 里查找老 QQ 号（纯数字 user_id）。
 
