@@ -505,7 +505,6 @@ class NewbieMixin:
             """, (group_id, "2026_fall", user_id, year, week, now.month, new_points, now.isoformat()))
 
         conn.commit()
-        leaderboard = self.get_newbie_leaderboard(group_id, changed_user=user_id, point_change=point_change)
 
         if weekly_count < rule["point1"]:
             remaining = rule["point1"] - weekly_count
@@ -515,16 +514,6 @@ class NewbieMixin:
             progress = f"距离 2 分档还差 {remaining} 次"
         else:
             progress = "本周最高积分已完成！"
-
-        week_ranking = self.query_ranking(group_id, "week")
-        if week_ranking:
-            week_lines = []
-            for index, row in enumerate(week_ranking[:], start=1):
-                week_lines.append(f"{index}. {row[1]} ｜ {float(row[2]):.2f} km")
-            week_text = "\n".join(week_lines)
-        else:
-            week_text = "暂无周榜数据"
-
 
         display_name = self.get_display_name(event, user["nickname"])
 
@@ -538,9 +527,6 @@ class NewbieMixin:
         )
 
         message += f"\n🎉 本次积分变化：+{point_change}\n" if point_change > 0 else "\n📌 本次积分变化：+0\n"
-        message += "\n\n📊 新手任务积分排行榜\n━━━━━━━━━━━━━━\n" + leaderboard
-        message += "\n\n"
-        message += "\n\n📊 本周跑量榜\n━━━━━━━━━━━━━━\n" + week_text
         conn.close()
 
         return message, source_path
@@ -657,7 +643,6 @@ class NewbieMixin:
         new_points = min((training_count // 4) * 3, 12)
         point_change = new_points - old_points
 
-        leaderboard = self.get_newbie_leaderboard(group_id, changed_user=target_user_id, point_change=point_change)
         display_name = self.get_display_name(event, user["nickname"])
         message = (f"🏋️ 训练记录成功！\n\n成员：{display_name}\n累计训练：{training_count} 次\n训练积分：{new_points} 分\n")
         if point_change > 0:
@@ -671,7 +656,6 @@ class NewbieMixin:
                 message += f"再完成 {remaining} 次训练可获得 +3 分\n"
             else:
                 message += "训练积分已达到上限 12 分\n"
-        message += "\n━━━━━━━━━━━━━━\n📊 新手任务积分排行榜\n━━━━━━━━━━━━━━\n" + leaderboard
         conn.close()
         node = Node(
             uin=0,

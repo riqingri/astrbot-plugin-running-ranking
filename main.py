@@ -498,7 +498,7 @@ class RunningRankPlugin(
             del self.pending_images[key]
 
             # -----------------------------------------------------
-            # 查询本周排名
+            # 查询本周累计（仅用于展示个人本周总里程）
             # -----------------------------------------------------
 
             ranking = self.query_ranking(
@@ -506,43 +506,23 @@ class RunningRankPlugin(
                 "week"
             )
 
-            rank = 0
+            week_total = 0.0
 
-            week_total = 0
+            for row in ranking:
 
-            for index, row in enumerate(
-                ranking,
-                start=1
-            ):
+                if str(row[0]) == str(user_id):
 
-                if str(row[0]) == str(
-                    user_id
-                ):
-
-                    rank = index
-
-                    week_total = float(
-                        row[2]
-                    )
+                    week_total = float(row[2])
 
                     break
-
-
-            ranking_text = self.get_ranking_text(
-                event,
-                "week"
-            )
 
             node = Node(
                 uin=0,
                 name="柏柏子",
                 content=[Plain(f"✅ 跑步记录成功！\n\n"
                     f"🏃 本次：{distance:.2f} km\n"
-                    f"📆 本周累计：{week_total:.2f} km\n"
-                    f"🏆 当前周榜：第 {rank} 名\n\n"
-                    f"📸 跑步证明已记录。"
-                    f"\n━━━━━━━━━━\n"
-                    f"{ranking_text}")]
+                    f"📆 本周累计：{week_total:.2f} km\n\n"
+                    f"📸 跑步证明已记录。")]
             )
             yield self.reply_result(event, node)
 
