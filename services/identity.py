@@ -597,22 +597,10 @@ class IdentityMixin:
             user_name = user_id
 
         # ---------------------------------------------------------
-        # 群号
+        # 群号（统一走 get_group_id，把 group_openid 映射回数字群号）
         # ---------------------------------------------------------
 
-        try:
-
-            group_id = (
-                event.get_group_id()
-            )
-
-        except Exception:
-
-            group_id = None
-
-        if group_id is None:
-
-            group_id = "private"
+        group_id = self.get_group_id(event)
 
         return (
             user_id,
