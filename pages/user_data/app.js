@@ -32,6 +32,7 @@
         { key: "group_id", label: "群号" },
         { key: "semester", label: "学期", default: "2026_fall" },
         { key: "user_id", label: "用户 QQ" },
+        { key: "openid", label: "OpenID（选填）", formOnly: true, placeholder: "填写后写入 openid→QQ 映射" },
         { key: "nickname", label: "昵称", autofill: ["user_id", "group_id"] },
         { key: "gender", label: "性别", type: "select", options: [{ value: "male", label: "男" }, { value: "female", label: "女" }] },
         { key: "joined_at", label: "加入时间", type: "datetime" },
@@ -241,7 +242,7 @@
   function renderThead() {
     const c = config();
     const tr = document.createElement("tr");
-    c.columns.filter((col) => !col.helper).forEach((col) => {
+    c.columns.filter((col) => !col.helper && !col.formOnly).forEach((col) => {
       const th = document.createElement("th");
       th.textContent = col.label;
       tr.appendChild(th);
@@ -268,7 +269,7 @@
 
     state.rows.forEach((row) => {
       const tr = document.createElement("tr");
-      c.columns.filter((col) => !col.helper).forEach((col) => {
+      c.columns.filter((col) => !col.helper && !col.formOnly).forEach((col) => {
         const td = document.createElement("td");
         td.textContent = cellText(col, row);
         td.title = cellText(col, row);
@@ -605,7 +606,7 @@
 
     els.modalForm.innerHTML = "";
     c.columns.forEach((col) => {
-      if (col.helper && !isCreate) return; // 辅助字段仅在新增时显示
+      if ((col.helper || col.formOnly) && !isCreate) return; // 辅助/仅表单字段仅在新增时显示
       const isAuto = c.autoFields.includes(col.key);
       const isPk = c.pkFields.includes(col.key);
       if (isCreate && isAuto) return; // 自动 id 不显示

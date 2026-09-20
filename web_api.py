@@ -733,6 +733,12 @@ class WebApiMixin:
             return json_response({"status": "error", "message": f"数据库错误: {e}"})
 
         nb.commit()
+
+        # 填了 openid 时，写入 openid → QQ 号映射（供 QQ 官方机器人解析身份）
+        openid = _str(body.get("openid"))
+        if openid:
+            self.set_id_mapping(openid, user_id)
+
         nb.close()
         return json_response({"status": "ok", "data": {"group_id": group_id, "user_id": user_id}})
 

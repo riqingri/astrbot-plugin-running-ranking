@@ -121,11 +121,21 @@ class NewbieMixin:
             return female_rules.get(stage), stage, days_to_next_stage
         return male_rules.get(stage), stage, days_to_next_stage
 
-    async def join_newbie(self, event: AstrMessageEvent, gender_text: str = "男"):
+    async def join_newbie(self, event: AstrMessageEvent, argument: str = "男"):
         group_id = self.get_group_id(event)
-        user_id = self.get_user_id(event)
         nickname = await self.get_sender_nickname(event)
-        gender_text = str(gender_text).strip().lower()
+
+        # ---------------------------------------------------------
+        # 解析 性别 + 可选 QQ 号
+        #
+        #   /加入新手任务 男 123456789
+        #   /加入新手任务 123456789 女
+        #   /加入新手任务 女
+        # ---------------------------------------------------------
+
+        text = str(argument or "").strip()
+        qq_id = self.extract_qq_id(text)
+        gender_text = re.sub(r"\d{5,15}", "", text).strip().lower()
 
         if gender_text in ["女", "女生", "female", "girl"]:
             gender = "female"
@@ -133,6 +143,19 @@ class NewbieMixin:
         else:
             gender = "male"
             gender_name = "男生"
+
+        # ---------------------------------------------------------
+        # 用户 QQ 号：优先用参数里填写的 QQ 号，并写入 openid→QQ 映射；
+        # 没填则退回 openid 解析（映射表 / 昵称反查）。
+        # ---------------------------------------------------------
+
+        bound_qq = False
+        if qq_id and self.is_qq_official(event):
+            user_id = qq_id
+            self.set_id_mapping(str(event.get_sender_id()), qq_id)
+            bound_qq = True
+        else:
+            user_id = self.get_user_id(event)
 
         conn = self.get_newbie_conn()
         cursor = conn.cursor()
@@ -160,13 +183,22 @@ class NewbieMixin:
         conn.commit()
         conn.close()
 
+        if bound_qq:
+            bind_note = f"\n🔗 已绑定到 QQ {user_id}，之后命令会自动识别你。\n"
+        elif not str(user_id).isdigit():
+            bind_note = "\n⚠️ 未提供 QQ 号，暂按 openid 记录。建议用 /绑定 QQ号 补上。\n"
+        else:
+            bind_note = ""
+
         node = Node(
             uin=0,
             name="柏柏子",
             content=[Plain(f"🎉 新手任务报名成功！\n\n"
                 f"成员：{nickname}\n"
+                f"QQ：{user_id}\n"
                 f"组别：{gender_name}\n"
-                f"学期：2026_fall\n\n"
+                f"学期：2026_fall\n"
+                f"{bind_note}\n"
                 "请等待管理员使用：\n"
                 f"/开始积分 @{nickname}\n\n"
                 "管理员开始积分后，你才能使用 /跑步积分 命令。")]
@@ -1142,7 +1174,7 @@ class NewbieMixin:
             "/绑定 QQ号   绑定",
             "",
             "【新手任务】",
-            "/加入新手任务  报名",
+            "/加入新手任务 男 [QQ号]  报名",
             "/开始积分     开始",
             "/跑步积分     提交",
             "/我的新手积分  查看",
