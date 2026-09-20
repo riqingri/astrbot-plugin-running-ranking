@@ -579,7 +579,10 @@
             const item = document.createElement("div");
             item.className = "autofill-item";
             item.textContent = `${s.user_name}（QQ ${s.user_id} · 群 ${s.group_id}）`;
-            item.onclick = () => applySuggestion(s);
+            item.addEventListener("mousedown", (e) => {
+              e.preventDefault(); // 阻止 input 失焦，避免 blur 抢先隐藏下拉导致 click 不触发
+              applySuggestion(s);
+            });
             dropdown.appendChild(item);
           });
           input.parentElement.appendChild(dropdown);
