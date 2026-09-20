@@ -125,6 +125,40 @@ class IdentityMixin:
     def get_user_id(self, event: AstrMessageEvent) -> str:
         return self.resolve_user_id(event)
 
+    def log_identity_context(self, event: AstrMessageEvent, command_name: str = "") -> None:
+        """打印一次身份解析上下文：原始 openid(qqid) 与解析后的 QQ号/数字群号。
+
+        每次调用命令时打一行，用来排查「绑定不上 / 存的是 openid」问题。
+        """
+        platform = self.get_platform_name(event)
+        try:
+            raw_user = str(event.get_sender_id())
+        except Exception:
+            raw_user = "?"
+        try:
+            raw_group = str(event.get_group_id())
+        except Exception:
+            raw_group = "private"
+
+        mapped = self.lookup_qq_id(raw_user) if self.is_qq_official(event) else None
+        resolved_user = self.get_user_id(event)
+        resolved_group = self.get_group_id(event)
+        candidates = self._candidate_nicknames(event)
+
+        logger.info(
+            "[RunningRank] 身份解析 | 命令=%s | 平台=%s | "
+            "原始群id=%s -> 解析群号=%s | "
+            "原始用户id=%s -> 解析QQ号=%s | 映射表命中=%s | 昵称候选=%r",
+            command_name,
+            platform,
+            raw_group,
+            resolved_group,
+            raw_user,
+            resolved_user,
+            mapped,
+            candidates,
+        )
+
     # =============================================================
     # openid ↔ QQ 号 映射
     #

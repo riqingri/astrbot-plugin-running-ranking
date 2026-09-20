@@ -200,6 +200,8 @@ class RunningRankPlugin(
         if not handler_name:
             return
 
+        self.log_identity_context(event, command_name)
+
         handler = getattr(self, handler_name, None)
         if not callable(handler):
             return
