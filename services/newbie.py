@@ -175,11 +175,12 @@ class NewbieMixin:
             conn.close()
             return
 
+        now = datetime.now().isoformat()
         cursor.execute("""
         INSERT INTO newbie_users (
             group_id, semester, user_id, nickname, gender, joined_at, points_started, points_started_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 0, NULL)
-        """, (group_id, "2026_fall", user_id, nickname, gender, datetime.now().isoformat()))
+        ) VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+        """, (group_id, "2026_fall", user_id, nickname, gender, now, now))
         conn.commit()
         conn.close()
 
@@ -199,9 +200,7 @@ class NewbieMixin:
                 f"组别：{gender_name}\n"
                 f"学期：2026_fall\n"
                 f"{bind_note}\n"
-                "请等待管理员使用：\n"
-                f"/开始积分 @{nickname}\n\n"
-                "管理员开始积分后，你才能使用 /跑步积分 命令。")]
+                "✅ 已自动开始积分，你现在就可以使用 /跑步积分 命令。")]
         )
         yield self.reply_result(event, node)
 
