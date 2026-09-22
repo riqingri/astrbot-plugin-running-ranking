@@ -432,6 +432,26 @@ class RunningMixin:
             title = "👑 总跑步排行榜"
 
         lines = [title]
+
+        # -----------------------------------------------------
+        # 查询者本人排名（置顶显示）
+        # -----------------------------------------------------
+
+        your_rank = None
+        your_distance = 0.0
+        for index, row in enumerate(ranking, start=1):
+            if str(row[0]) == str(current_user_id):
+                your_rank = index
+                your_distance = float(row[2])
+                break
+
+        lines.append("")
+        if your_rank is not None:
+            lines.append(f"📌 你的排名：第{your_rank}名 ｜ {your_distance:.2f} km")
+        else:
+            lines.append("📌 你还没有跑步记录，暂未上榜。")
+            lines.append("💡 如果之前跑过但没有记录，试试：/绑定 你的QQ号")
+
         lines.append("")
         lines.append("榜  群昵称  跑量")
 

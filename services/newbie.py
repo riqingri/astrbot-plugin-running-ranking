@@ -925,7 +925,7 @@ class NewbieMixin:
             "count": len(rows),
         }
 
-    def get_newbie_leaderboard(self, group_id: str, changed_user: Optional[str] = None, point_change: int = 0) -> str:
+    def get_newbie_leaderboard(self, group_id: str, changed_user: Optional[str] = None, point_change: int = 0, self_user_id: Optional[str] = None) -> str:
         conn = self.get_newbie_conn()
         cursor = conn.cursor()
         cursor.execute("""
@@ -944,6 +944,23 @@ class NewbieMixin:
 
         medals = ["🥇", "🥈", "🥉"]
         lines = []
+
+        # 查询者本人排名（置顶显示）
+        if self_user_id:
+            self_position = None
+            self_points = 0
+            for index, user in enumerate(data, start=1):
+                if str(user["user_id"]) == str(self_user_id):
+                    self_position = index
+                    self_points = user["total_points"]
+                    break
+            if self_position is not None:
+                lines.append(f"📌 你的排名：第{self_position}名 ｜ 积分 {self_points}")
+            else:
+                lines.append("📌 你还没有加入新手任务或还没开始积分，暂未上榜。")
+                lines.append("💡 如果之前跑过但没有记录，试试：/绑定 你的QQ号")
+            lines.append("")
+
         for index, user in enumerate(data, start=1):
             rank = medals[index - 1] if index <= 3 else f"{index}."
             line = f"{rank} {user['nickname']} ｜ 积分 {user['total_points']}"
@@ -955,7 +972,8 @@ class NewbieMixin:
 
     async def show_leaderboard(self, event: AstrMessageEvent):
         group_id = self.get_group_id(event)
-        leaderboard = self.get_newbie_leaderboard(group_id)
+        user_id = self.get_user_id(event)
+        leaderboard = self.get_newbie_leaderboard(group_id, self_user_id=user_id)
         node = Node(
             uin=0,
             name="柏柏子",
