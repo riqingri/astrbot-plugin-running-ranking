@@ -255,28 +255,28 @@ class RunningRankPlugin(
         if not source_path or not os.path.exists(source_path):
             return
 
-        try:
-            provider = self.context.get_using_provider(event.unified_msg_origin)
-            if provider is None:
-                logger.warning("[RunningRank] 未找到当前会话的 LLM Provider")
-                return
+        # try:
+        #     provider = self.context.get_using_provider(event.unified_msg_origin)
+        #     if provider is None:
+        #         logger.warning("[RunningRank] 未找到当前会话的 LLM Provider")
+        #         return
 
-            chat_provider_id = provider.meta().id
-            logger.info("[RunningRank] 准备将跑步证明图片发送给 LLM: %s", chat_provider_id)
+        #     chat_provider_id = provider.meta().id
+        #     logger.info("[RunningRank] 准备将跑步证明图片发送给 LLM: %s", chat_provider_id)
 
-            response = await self.context.llm_generate(
-                chat_provider_id=chat_provider_id,
-                prompt="你是一个爱水群爱吐槽的跑团组织者，跑团同学发送了一张图片，请看看这张图片是否是跑步证明？如果不是，就谴责他乱发图片，简单吐槽一下图片内容；如果是，就简单分析一下图片内容，找到简单夸奖或者聊聊图片的配速和地图或者其他图片信息，也可以严肃分析图片，提供专业教练的分析和建议。回复30个字以内，禁止使用markdown语法，使回复在一个QQ消息气泡中显得自然",
-                image_urls=[source_path],
-            )
+        #     response = await self.context.llm_generate(
+        #         chat_provider_id=chat_provider_id,
+        #         prompt="你是一个爱水群爱吐槽的跑团组织者，跑团同学发送了一张图片，请看看这张图片是否是跑步证明？如果不是，就谴责他乱发图片，简单吐槽一下图片内容；如果是，就简单分析一下图片内容，找到简单夸奖或者聊聊图片的配速和地图或者其他图片信息，也可以严肃分析图片，提供专业教练的分析和建议。回复30个字以内，禁止使用markdown语法，使回复在一个QQ消息气泡中显得自然",
+        #         image_urls=[source_path],
+        #     )
 
-            # 输出模型回复
-            if response and response.completion_text:
+        #     # 输出模型回复
+        #     if response and response.completion_text:
 
-                yield self.reply_text(event, response.completion_text)
+        #         yield self.reply_text(event, response.completion_text)
 
-        except Exception as e:
-            logger.error("[RunningRank] 调用 LLM 分析跑步图片失败: %s", e)
+        # except Exception as e:
+        #     logger.error("[RunningRank] 调用 LLM 分析跑步图片失败: %s", e)
 
     # =============================================================
     # 统一图片监听
@@ -530,50 +530,50 @@ class RunningRankPlugin(
             # 将当前图片交给 Agent / LLM
             # =====================================================
 
-            try:
+            # try:
 
-                # 获取当前会话使用的模型
-                provider = self.context.get_using_provider(
-                    event.unified_msg_origin
-                )
+            #     # 获取当前会话使用的模型
+            #     provider = self.context.get_using_provider(
+            #         event.unified_msg_origin
+            #     )
 
-                if provider is None:
+            #     if provider is None:
 
-                    logger.warning(
-                        "[RunningRank] 未找到当前会话的 LLM Provider"
-                    )
+            #         logger.warning(
+            #             "[RunningRank] 未找到当前会话的 LLM Provider"
+            #         )
 
-                    return
+            #         return
 
-                # 获取 Provider ID
-                chat_provider_id = provider.meta().id
+            #     # 获取 Provider ID
+            #     chat_provider_id = provider.meta().id
 
-                logger.info(
-                    "[RunningRank] "
-                    f"准备将跑步证明图片发送给 LLM: "
-                    f"{chat_provider_id}"
-                )
+            #     logger.info(
+            #         "[RunningRank] "
+            #         f"准备将跑步证明图片发送给 LLM: "
+            #         f"{chat_provider_id}"
+            #     )
 
-                # 调用多模态模型
-                response = await self.context.llm_generate(
-                    chat_provider_id=chat_provider_id,
-                    prompt="你是一个爱水群爱吐槽的跑团组织者，跑团同学发送了一张图片，请看看这张图片是否是跑步证明？如果不是，就谴责他乱发图片，简单吐槽一下图片内容；如果是，就简单分析一下图片内容，找到简单夸奖或者聊聊图片的配速和地图或者其他图片信息。回复30个字以内，禁止使用markdown语法，使回复在一个QQ消息气泡中显得自然。示范：“数据型” → 这配速，今天偷偷开挂了？“地图型” → 这路线绕得，蚂蚁看了都迷路“时间型” → 这点还在跑，你是真不睡啊“跑团型” → 又一个不声不响开始卷的“细节型” → 这轨迹最后一下是迷路了吗“吐槽型” → 跑步证明呢？你这明显是在发旅游攻略“夸奖型” → 稳稳拿下，今天状态不错嘛。但是注意！不要直接套用示例，要根据图片内容进行分析和吐槽生成新鲜有趣的内容，回复中不要出现示例中的文字。",
-                    image_urls=[
-                        source_path
-                    ]
-                )
+            #     # 调用多模态模型
+            #     response = await self.context.llm_generate(
+            #         chat_provider_id=chat_provider_id,
+            #         prompt="你是一个爱水群爱吐槽的跑团组织者，跑团同学发送了一张图片，请看看这张图片是否是跑步证明？如果不是，就谴责他乱发图片，简单吐槽一下图片内容；如果是，就简单分析一下图片内容，找到简单夸奖或者聊聊图片的配速和地图或者其他图片信息。回复30个字以内，禁止使用markdown语法，使回复在一个QQ消息气泡中显得自然。示范：“数据型” → 这配速，今天偷偷开挂了？“地图型” → 这路线绕得，蚂蚁看了都迷路“时间型” → 这点还在跑，你是真不睡啊“跑团型” → 又一个不声不响开始卷的“细节型” → 这轨迹最后一下是迷路了吗“吐槽型” → 跑步证明呢？你这明显是在发旅游攻略“夸奖型” → 稳稳拿下，今天状态不错嘛。但是注意！不要直接套用示例，要根据图片内容进行分析和吐槽生成新鲜有趣的内容，回复中不要出现示例中的文字。",
+            #         image_urls=[
+            #             source_path
+            #         ]
+            #     )
 
-                # 输出模型回复
-                if response and response.completion_text:
+            #     # 输出模型回复
+            #     if response and response.completion_text:
 
-                    yield self.reply_text(event, response.completion_text)
+            #         yield self.reply_text(event, response.completion_text)
 
-            except Exception as e:
+            # except Exception as e:
 
-                logger.error(
-                    "[RunningRank] "
-                    f"调用 LLM 分析跑步图片失败: {e}"
-                )
+            #     logger.error(
+            #         "[RunningRank] "
+            #         f"调用 LLM 分析跑步图片失败: {e}"
+            #     )
 
             return
 
