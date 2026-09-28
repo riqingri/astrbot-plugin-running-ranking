@@ -151,6 +151,7 @@
     modalSave: $("modalSave"),
     toast: $("toast"),
     exportBtn: $("exportBtn"),
+    recomputePointsBtn: $("recomputePointsBtn"),
     exportModal: $("exportModal"),
     exportClose: $("exportClose"),
     exportGroup: $("exportGroup"),
@@ -189,9 +190,10 @@
 
   // 沙箱 iframe 屏蔽了 window.confirm，改用 DOM 确认框
   let confirmResolve = null;
-  function confirmDialog(message) {
+  function confirmDialog(message, confirmLabel = "确认") {
     return new Promise((resolve) => {
       els.confirmText.textContent = message;
+      els.confirmOk.textContent = confirmLabel;
       els.confirmModal.hidden = false;
       confirmResolve = resolve;
     });
@@ -237,6 +239,7 @@
       };
       els.tabs.appendChild(btn);
     });
+    els.recomputePointsBtn.hidden = state.table !== "newbie_running_points";
   }
 
   function renderThead() {
@@ -441,6 +444,41 @@
   function downloadCsv() {
     if (!state.exportCsv) return;
     downloadTextFile(state.exportCsv, state.exportFilename);
+  }
+
+  async function recomputePoints() {
+    const groupId = els.groupFilter.value || "";
+    const scope = groupId ? `群号 ${groupId}` : "全部群";
+    els.recomputePointsBtn.disabled = true;
+    try {
+      const preview = await bridge.apiPost("newbie_running_points/recompute_preview", { group_id: groupId });
+      const changes = preview.changes || [];
+      const lines = [
+        `重算范围：${scope}`,
+        "计算只使用新手用户配置和新手跑步原始记录；现有积分表内容不参与计算。",
+        `确认后会清空该范围积分表并重新写入 ${preview.rebuilt_rows || 0} 条周积分记录。`,
+        `积分发生变化的成员：${changes.length}`,
+      ];
+      if (changes.length) {
+        lines.push("", "成员 · 新手跑步次数 · 训练次数 · 跑步积分变化");
+        changes.forEach((row) => {
+          const delta = Number(row.point_change || 0);
+          const sign = delta > 0 ? "+" : "";
+          lines.push(`${row.nickname}（${row.user_id}，群 ${row.group_id}）：跑步 ${row.running_count} 次，训练 ${row.training_count} 次，${row.old_points} → ${row.new_points} 分（${sign}${delta}）`);
+        });
+      } else {
+        lines.push("", "按当前计算结果与表中记录相比，没有成员的周积分发生变化；确认仍会按原始记录重建积分表。");
+      }
+      const ok = await confirmDialog(lines.join("\n"), "清空并重建");
+      if (!ok) return;
+      const result = await bridge.apiPost("newbie_running_points/recompute_apply", { group_id: groupId });
+      toast(`积分表已重建，写入 ${result.written || 0} 条记录`);
+      await Promise.all([load(), loadOverview()]);
+    } catch (e) {
+      toast("重算失败：" + (e && e.message ? e.message : e));
+    } finally {
+      els.recomputePointsBtn.disabled = false;
+    }
   }
 
   function importTableLabel() {
@@ -726,7 +764,7 @@
   async function remove(row) {
     const c = config();
     const key = c.pkFields.map((f) => `${f}: ${row[f]}`).join(", ");
-    const ok = await confirmDialog(`确认删除这条${c.label}？\n${key}`);
+    const ok = await confirmDialog(`确认删除这条${c.label}？\n${key}`, "删除");
     if (!ok) return;
 
     const body = {};
@@ -776,6 +814,7 @@
       if (e.target === els.modal) closeModal();
     });
     els.exportBtn.onclick = openExport;
+    els.recomputePointsBtn.onclick = recomputePoints;
     els.exportClose.onclick = () => {
       els.exportModal.hidden = true;
     };

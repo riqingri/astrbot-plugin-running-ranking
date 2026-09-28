@@ -1,7 +1,7 @@
 import csv
 import io
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from astrbot.api.web import json_response, request
 
@@ -208,6 +208,8 @@ class WebApiMixin:
             ("POST", f"{prefix}/newbie_running_records/delete", self._api_delete_newbie_running_record, "删除新手跑步"),
 
             ("GET", f"{prefix}/newbie_running_points", self._api_list_newbie_points, "新手积分列表"),
+            ("POST", f"{prefix}/newbie_running_points/recompute_preview", self._api_preview_newbie_points_rebuild, "预览重算新手积分"),
+            ("POST", f"{prefix}/newbie_running_points/recompute_apply", self._api_apply_newbie_points_rebuild, "重建新手积分"),
             ("POST", f"{prefix}/newbie_running_points/create", self._api_create_newbie_point, "新增新手积分"),
             ("POST", f"{prefix}/newbie_running_points/update", self._api_update_newbie_point, "修改新手积分"),
             ("POST", f"{prefix}/newbie_running_points/delete", self._api_delete_newbie_point, "删除新手积分"),
@@ -913,6 +915,119 @@ class WebApiMixin:
     # =============================================================
     # 新手积分 newbie_running_points（newbie_points.db）
     # =============================================================
+
+    def _calculate_newbie_points_rebuild(self, group_id=None):
+        """只从用户配置和新手跑步原始记录计算积分，不读取现有积分表。"""
+        conn = self.get_newbie_conn()
+        cursor = conn.cursor()
+        where = "WHERE points_started = 1"
+        params = []
+        if group_id:
+            where += " AND group_id = ?"
+            params.append(group_id)
+        cursor.execute(f"SELECT group_id, semester, user_id, nickname, gender, points_started_at FROM newbie_users {where}", params)
+        users = {(str(r["group_id"]), str(r["semester"]), str(r["user_id"])): r for r in cursor.fetchall()}
+
+        run_totals = {}
+        qualifying_counts = {}
+        week_starts = {}
+        week_rules = {}
+        cursor.execute("SELECT group_id, semester, user_id, distance, created_at FROM newbie_running_records" + (" WHERE group_id = ?" if group_id else ""), ([group_id] if group_id else []))
+        for run in cursor.fetchall():
+            user_key = (str(run["group_id"]), str(run["semester"]), str(run["user_id"]))
+            user = users.get(user_key)
+            if user is None:
+                continue
+            run_totals[user_key] = run_totals.get(user_key, 0) + 1
+            try:
+                run_time = datetime.fromisoformat(run["created_at"])
+            except (TypeError, ValueError):
+                continue
+            week_start, week_number = self.get_program_week(user["points_started_at"], run_time)
+            if week_start is None or week_number < 1:
+                continue
+            rule_info = self.get_running_rule(user["gender"], user["points_started_at"], week_start + timedelta(days=3))
+            rule = rule_info[0] if rule_info else None
+            if rule is None or _float(run["distance"]) < rule["distance"]:
+                continue
+            key = user_key + (week_start.year, week_number)
+            qualifying_counts[key] = qualifying_counts.get(key, 0) + 1
+            week_starts[key] = week_start
+            week_rules[key] = rule
+
+        expected = {}
+        for key, count in qualifying_counts.items():
+            rule = week_rules[key]
+            points = 2 if count >= rule["point2"] else (1 if count >= rule["point1"] else 0)
+            if points:
+                g, semester, user_id, year, week = key
+                expected[key] = {
+                    "group_id": g, "semester": semester, "user_id": user_id,
+                    "year": year, "week": week, "month": week_starts[key].month,
+                    "points": points,
+                }
+
+        cursor.execute("SELECT group_id, semester, user_id, year, week, points FROM newbie_running_points" + (" WHERE group_id = ?" if group_id else ""), ([group_id] if group_id else []))
+        current = {
+            (str(r["group_id"]), str(r["semester"]), str(r["user_id"]), r["year"], r["week"]): r["points"]
+            for r in cursor.fetchall()
+        }
+        changed_keys = {key for key in set(current) | set(expected) if current.get(key, 0) != expected.get(key, {}).get("points", 0)}
+
+        training_totals = {}
+        cursor.execute("SELECT group_id, semester, user_id, COUNT(*) AS count FROM newbie_training_records" + (" WHERE group_id = ?" if group_id else "") + " GROUP BY group_id, semester, user_id", ([group_id] if group_id else []))
+        for r in cursor.fetchall():
+            training_totals[(str(r["group_id"]), str(r["semester"]), str(r["user_id"]))] = r["count"]
+
+        changed_users = sorted({key[:3] for key in changed_keys})
+        changes = []
+        for user_key in changed_users:
+            related = [key for key in changed_keys if key[:3] == user_key]
+            user_current_keys = [key for key in current if key[:3] == user_key]
+            user_expected_keys = [key for key in expected if key[:3] == user_key]
+            before = sum(current[key] for key in user_current_keys)
+            after = sum(expected[key]["points"] for key in user_expected_keys)
+            user = users.get(user_key)
+            changes.append({
+                "group_id": user_key[0], "semester": user_key[1], "user_id": user_key[2],
+                "nickname": (user["nickname"] if user else "") or user_key[2],
+                "running_count": run_totals.get(user_key, 0),
+                "training_count": training_totals.get(user_key, 0),
+                "old_points": before, "new_points": after, "point_change": after - before,
+                "changed_weeks": len(related),
+            })
+        conn.close()
+        return expected, changes
+
+    async def _api_preview_newbie_points_rebuild(self):
+        body = await _read_body()
+        group_id = _str(body.get("group_id")) or None
+        expected, changes = self._calculate_newbie_points_rebuild(group_id)
+        return json_response({"status": "ok", "data": {"group_id": group_id, "rebuilt_rows": len(expected), "changed_users": len(changes), "changes": changes}})
+
+    async def _api_apply_newbie_points_rebuild(self):
+        body = await _read_body()
+        group_id = _str(body.get("group_id")) or None
+        expected, changes = self._calculate_newbie_points_rebuild(group_id)
+        conn = self.get_newbie_conn()
+        try:
+            cursor = conn.cursor()
+            if group_id:
+                cursor.execute("DELETE FROM newbie_running_points WHERE group_id = ?", (group_id,))
+            else:
+                cursor.execute("DELETE FROM newbie_running_points")
+            cursor.executemany("""
+                INSERT INTO newbie_running_points (group_id, semester, user_id, year, week, month, points, created_at)
+                VALUES (:group_id, :semester, :user_id, :year, :week, :month, :points, :created_at)
+            """, [dict(row, created_at=_now_iso()) for row in expected.values()])
+            conn.commit()
+            count = len(expected)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return json_response({"status": "ok", "data": {"written": count, "changed_users": len(changes)}})
 
     async def _api_list_newbie_points(self):
         total, rows = self._query_newbie_list("newbie_running_points", ["user_id"])

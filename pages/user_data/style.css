@@ -339,7 +339,13 @@ td.row-actions .btn {
 }
 
 .modal.confirm {
-  max-width: 380px;
+  max-width: 720px;
+  max-height: 85vh;
+}
+
+.modal.confirm .modal-body {
+  max-height: 65vh;
+  overflow-y: auto;
 }
 
 .confirm-text {
