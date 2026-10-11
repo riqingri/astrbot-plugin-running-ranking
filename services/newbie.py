@@ -30,97 +30,101 @@ class NewbieMixin:
     """新手任务：报名、积分、训练、管理员管理。"""
 
     def get_running_stage(self, started_at: Optional[str], reference_time: Optional[datetime] = None) -> Tuple[int, int]:
-        if not started_at:
-            return (0, 0)
-
-        try:
-            # started at means the time user started
-            start_time = datetime.fromisoformat(started_at)
-        except (TypeError, ValueError):
-            return (0, 0)
-
-        if reference_time is None:
-            reference_time = datetime.now()  # reference time is now
-
-        start_week_start = start_time - timedelta(days=start_time.weekday()) # start_time - start_time
-
-        # 周一开始积分：第 1 阶段就是 4 周；
-        # 非周一开始积分：本周剩余天数 + 下四周 一起算第 1 阶段
-        if start_time.weekday() == 0:
-            stage1_end = start_week_start + timedelta(weeks=4)
-        else:
-            stage1_end = start_week_start + timedelta(weeks=5)
-
-        days_to_stage2 = (stage1_end - reference_time).days
-        if days_to_stage2 > 0:
-            return 1, days_to_stage2
-
-        # 第 1 阶段结束后，每 4 周一档升到第 2/3/4 阶段
-        elapsed_after_stage1 = (reference_time - stage1_end).days
-        if elapsed_after_stage1 < 4 * 7:
-            return 2, 4 * 7 - elapsed_after_stage1
-        if elapsed_after_stage1 < 8 * 7:
-            return 3, 8 * 7 - elapsed_after_stage1
-        if elapsed_after_stage1 < 12 * 7:
-            return 4, 12 * 7 - elapsed_after_stage1
-        return 4, 0
+        """返回阶段和距下一阶段的日历天数，阶段统一在周一零点切换。"""
+        reference_time = reference_time or datetime.now()
+        _, week = self.get_program_week(started_at, reference_time)
+        if week == 0:
+            return 0, 0
+        stage = min((week - 1) // 4 + 1, 4)
+        start = datetime.fromisoformat(started_at)
+        monday = (start - timedelta(days=start.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        stage_end = monday + timedelta(weeks=stage * 4 + (start.weekday() != 0))
+        return stage, max((stage_end.date() - reference_time.date()).days, 0)
 
     def get_stage_week(self, started_at: Optional[str], reference_time: Optional[datetime] = None) -> Tuple[int, int]:
-        """返回 (阶段, 阶段内周数)。未开始积分时返回 (0, 0)。"""
-        if not started_at:
-            return (0, 0)
-
-        try:
-            start_time = datetime.fromisoformat(started_at)
-        except (TypeError, ValueError):
-            return (0, 0)
-
-        if reference_time is None:
-            reference_time = datetime.now()
-
-        start_week_start = start_time - timedelta(days=start_time.weekday())
-        stage1_end = start_week_start + timedelta(weeks=4 if start_time.weekday() == 0 else 5)
-
-        if reference_time < stage1_end:
-            stage = 1
-            stage_start = start_time
-        else:
-            elapsed = (reference_time - stage1_end).days
-            if elapsed < 4 * 7:
-                stage = 2
-                stage_start = stage1_end
-            elif elapsed < 8 * 7:
-                stage = 3
-                stage_start = stage1_end + timedelta(weeks=4)
-            else:
-                stage = 4
-                stage_start = stage1_end + timedelta(weeks=8)
-
-        week = (reference_time - stage_start).days // 7 + 1
-        return (stage, week)
+        """返回 (阶段, 阶段内积分周数)，第一段不完整周并入首个完整周。"""
+        _, week = self.get_program_week(started_at, reference_time)
+        if week == 0:
+            return 0, 0
+        stage = min((week - 1) // 4 + 1, 4)
+        return stage, week - (stage - 1) * 4
 
     def get_program_week(self, started_at: Optional[str], reference_time: Optional[datetime] = None) -> Tuple[Optional[datetime], int]:
-        """返回用户当前「程序周」的 (week_start, week_number)。
-
-        程序周锚定在 points_started_at（开始积分时间）：例如周日加入，
-        则周日到周六算第 1 周，下周日到下周六算第 2 周，依此类推。
-        这样周日 + 周一的跑步次数会落在同一周，不会在周一被自然周切开。
-        未开始积分时返回 (None, 0)。
-        """
+        """返回积分周起点和序号；首个不完整周与首个完整周合并，其后按自然周。"""
         if not started_at:
             return None, 0
         try:
             start = datetime.fromisoformat(started_at)
         except (TypeError, ValueError):
             return None, 0
-        if reference_time is None:
-            reference_time = datetime.now()
-
+        reference_time = reference_time or datetime.now()
+        if reference_time < start:
+            return None, 0
         start_date = start.replace(hour=0, minute=0, second=0, microsecond=0)
-        ref_date = reference_time.replace(hour=0, minute=0, second=0, microsecond=0)
-        week_number = (ref_date - start_date).days // 7 + 1
-        week_start = start_date + timedelta(days=(week_number - 1) * 7)
-        return week_start, week_number
+        monday = start_date - timedelta(days=start.weekday())
+        first_week_end = monday + timedelta(weeks=1 if start.weekday() == 0 else 2)
+        if reference_time < first_week_end:
+            return start_date, 1
+        elapsed_weeks = (reference_time - first_week_end).days // 7
+        return first_week_end + timedelta(weeks=elapsed_weeks), elapsed_weeks + 2
+
+    def get_scoring_week(self, user, reference_time):
+        """统一计分区间（左闭右开）及规则；报名之前的记录不参与计分。"""
+        if not user["points_started"]:
+            return None
+        week_start, week = self.get_program_week(user["points_started_at"], reference_time)
+        if week_start is None:
+            return None
+        start = datetime.fromisoformat(user["points_started_at"])
+        if week == 1:
+            monday = week_start - timedelta(days=week_start.weekday())
+            week_end = monday + timedelta(weeks=1 if start.weekday() == 0 else 2)
+        else:
+            week_end = week_start + timedelta(weeks=1)
+        rule = self.get_running_rule(user["gender"], user["points_started_at"], reference_time)[0]
+        return max(week_start, start), week_end, week, rule
+
+    @staticmethod
+    def points_for_count(count, rule):
+        return 2 if count >= rule["point2"] else (1 if count >= rule["point1"] else 0)
+
+    def count_qualifying_runs(self, cursor, group_id, semester, user_id, scoring_week):
+        week_start, week_end, _, rule = scoring_week
+        cursor.execute("""
+        SELECT COUNT(*) AS count FROM newbie_running_records
+        WHERE group_id = ? AND semester = ? AND user_id = ?
+          AND created_at >= ? AND created_at < ? AND distance >= ?
+        """, (group_id, semester, user_id, week_start.isoformat(), week_end.isoformat(), rule["distance"]))
+        return cursor.fetchone()["count"]
+
+    def update_week_points(self, cursor, user, group_id, semester, user_id, reference_time):
+        """日常确认、撤销和后台重算共用同一计分实现，返回次数、积分和变化量。"""
+        scoring_week = self.get_scoring_week(user, reference_time)
+        if scoring_week is None:
+            return 0, 0, 0
+        week_start, _, week, rule = scoring_week
+        weekly_count = self.count_qualifying_runs(cursor, group_id, semester, user_id, scoring_week)
+        new_points = self.points_for_count(weekly_count, rule)
+        key = (group_id, semester, user_id, week_start.year, week)
+        cursor.execute("""
+        SELECT points FROM newbie_running_points
+        WHERE group_id = ? AND semester = ? AND user_id = ? AND year = ? AND week = ?
+        """, key)
+        old = cursor.fetchone()
+        old_points = old["points"] if old else 0
+        if new_points:
+            cursor.execute("""
+            INSERT INTO newbie_running_points (group_id, semester, user_id, year, week, month, points, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(group_id, semester, user_id, year, week)
+            DO UPDATE SET points = excluded.points, created_at = excluded.created_at
+            """, (*key, week_start.month, new_points, reference_time.isoformat()))
+        else:
+            cursor.execute("""
+            DELETE FROM newbie_running_points
+            WHERE group_id = ? AND semester = ? AND user_id = ? AND year = ? AND week = ?
+            """, key)
+        return weekly_count, new_points, new_points - old_points
 
     def get_running_rule(self, gender: str, started_at: Optional[str], reference_time: Optional[datetime] = None) -> Optional[Tuple[Optional[Dict], int, int]]:
         stage, days_to_next_stage = self.get_running_stage(started_at, reference_time)
@@ -362,11 +366,9 @@ class NewbieMixin:
             uin=0,
             name="柏柏子",
             content=[Plain(f"🎯 {display_name} 开始积分！\n\n"
-                f"积分阶段按“开始积分后的周龄”计算：\n"
-                f"第1阶段：0-4周\n"
-                f"第2阶段：4-8周\n"
-                f"第3阶段：8-12周\n"
-                f"第4阶段：12-16周\n\n"
+                "第1阶段为4个完整周，非周一加入时再加上当周剩余天数。\n"
+                "首个不完整周与第一个完整周合并计分，之后按周一至周日计分。\n"
+                "后续每4周进入下一阶段，统一在周一零点切换。\n\n"
                 f"从现在开始，该成员可以使用：\n/跑步积分 距离\n\n例如：\n/跑步积分 5km")]
         )
         yield self.reply_result(event, node)
@@ -414,7 +416,7 @@ class NewbieMixin:
             return
 
         now = datetime.now()
-        rule, stage, days_to_next_stage = self.get_running_rule(user["gender"], user["points_started_at"], now)
+        rule, stage, days_to_next_stage = self.get_running_rule(user["gender"], user["points_started_at"], now) or (None, 0, 0)
         if rule is None:
             conn.close()
             node = Node(
@@ -463,6 +465,15 @@ class NewbieMixin:
         if not user:
             conn.close()
             return "❌ 用户不存在。", ""
+
+        scoring_week = self.get_scoring_week(user, now)
+        if scoring_week is None:
+            conn.close()
+            return "❌ 该成员尚未开始积分，无法计算当前阶段规则。", ""
+        rule = scoring_week[3]
+        if distance < rule["distance"]:
+            conn.close()
+            return f"❌ 当前阶段每次至少 {rule['distance']}km，本次距离未达标。", ""
 
         # 证明图片不落盘服务器，只取 AstrBot 自己的临时文件路径供后续 LLM 分析
         source_path = None
@@ -517,50 +528,9 @@ class NewbieMixin:
         main_conn.commit()
         main_conn.close()
 
-        rule, stage, days_to_next_stage = self.get_running_rule(user["gender"], user["points_started_at"], now)
-        if rule is None:
-            conn.close()
-            return "❌ 该成员尚未开始积分，无法计算当前阶段规则。", ""
-
-        week_start, week_number = self.get_program_week(user["points_started_at"], now)
-        if week_start is None:
-            week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-            week_number = now.isocalendar()[1]
-
-        cursor.execute("""
-        SELECT COUNT(*) AS count
-        FROM newbie_running_records
-        WHERE group_id = ? AND semester = ? AND user_id = ? AND created_at >= ?
-        """, (group_id, "2026_fall", user_id, week_start.isoformat()))
-        weekly_count = cursor.fetchone()["count"]
-
-        year = week_start.year
-        week = week_number
-
-        cursor.execute("""
-        SELECT points FROM newbie_running_points
-        WHERE group_id = ? AND semester = ? AND user_id = ? AND year = ? AND week = ?
-        """, (group_id, "2026_fall", user_id, year, week))
-        old_record = cursor.fetchone()
-        old_points = old_record["points"] if old_record else 0
-
-        if weekly_count >= rule["point2"]:
-            new_points = 2
-        elif weekly_count >= rule["point1"]:
-            new_points = 1
-        else:
-            new_points = 0
-
-        point_change = new_points - old_points
-
-        if new_points > 0:
-            cursor.execute("""
-            INSERT INTO newbie_running_points (group_id, semester, user_id, year, week, month, points, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(group_id, semester, user_id, year, week)
-            DO UPDATE SET points = excluded.points, created_at = excluded.created_at
-            """, (group_id, "2026_fall", user_id, year, week, week_start.month, new_points, now.isoformat()))
-
+        weekly_count, new_points, point_change = self.update_week_points(
+            cursor, user, group_id, "2026_fall", user_id, now
+        )
         conn.commit()
 
         if weekly_count < rule["point1"]:
@@ -589,61 +559,20 @@ class NewbieMixin:
         return message, source_path
 
     def recompute_week_points(self, group_id, semester, user_id, reference_time):
-        """按 confirm_newbie_running 同款规则，重算某用户某周的跑步积分（供导入使用）。"""
+        """按统一规则重算指定积分周（供导入、编辑、删除使用）。"""
         conn = self.get_newbie_conn()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-        SELECT gender, points_started_at FROM newbie_users
-        WHERE group_id = ? AND semester = ? AND user_id = ?
-        """, (group_id, semester, user_id))
-        user = cursor.fetchone()
-        if not user:
-            conn.close()
-            return
-
-        rule, stage, _ = self.get_running_rule(user["gender"], user["points_started_at"], reference_time)
-        if rule is None:
-            conn.close()
-            return
-
-        week_start, week_number = self.get_program_week(user["points_started_at"], reference_time)
-        if week_start is None:
-            conn.close()
-            return
-        week_end = week_start + timedelta(days=7)
-
-        cursor.execute("""
-        SELECT COUNT(*) AS count FROM newbie_running_records
-        WHERE group_id = ? AND semester = ? AND user_id = ? AND created_at >= ? AND created_at < ?
-        """, (group_id, semester, user_id, week_start.isoformat(), week_end.isoformat()))
-        weekly_count = cursor.fetchone()["count"]
-
-        year = week_start.year
-        week = week_number
-
-        if weekly_count >= rule["point2"]:
-            new_points = 2
-        elif weekly_count >= rule["point1"]:
-            new_points = 1
-        else:
-            new_points = 0
-
-        if new_points > 0:
+        try:
+            cursor = conn.cursor()
             cursor.execute("""
-            INSERT INTO newbie_running_points (group_id, semester, user_id, year, week, month, points, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(group_id, semester, user_id, year, week)
-            DO UPDATE SET points = excluded.points, created_at = excluded.created_at
-            """, (group_id, semester, user_id, year, week, week_start.month, new_points, reference_time.isoformat()))
-        else:
-            cursor.execute("""
-            DELETE FROM newbie_running_points
-            WHERE group_id = ? AND semester = ? AND user_id = ? AND year = ? AND week = ?
-            """, (group_id, semester, user_id, year, week))
-
-        conn.commit()
-        conn.close()
+            SELECT * FROM newbie_users
+            WHERE group_id = ? AND semester = ? AND user_id = ?
+            """, (group_id, semester, user_id))
+            user = cursor.fetchone()
+            if user:
+                self.update_week_points(cursor, user, group_id, semester, user_id, reference_time)
+            conn.commit()
+        finally:
+            conn.close()
 
     async def add_training(self, event: AstrMessageEvent, argument: str = ""):
         argument = str(argument or "").strip()
@@ -857,20 +786,13 @@ class NewbieMixin:
 
         now = datetime.now()
 
-        # 本周跑步次数：按每个用户的程序周（锚定 points_started_at）分别统计，
-        # 否则周日加入的人在周一会被自然周切开，本周次数对不上。
+        # 使用与计分一致的周区间和距离门槛，首周包含加入时的不完整周。
         week_runs = {}
         for u in users:
-            u_week_start, _ = self.get_program_week(u["points_started_at"], now)
-            if u_week_start is None:
-                week_runs[u["user_id"]] = 0
-                continue
-            cursor.execute(
-                "SELECT COUNT(*) AS c FROM newbie_running_records "
-                "WHERE semester = ? AND group_id = ? AND user_id = ? AND created_at >= ?",
-                (semester, u["group_id"], u["user_id"], u_week_start.isoformat()),
-            )
-            week_runs[u["user_id"]] = cursor.fetchone()["c"] or 0
+            scoring_week = self.get_scoring_week(u, now)
+            week_runs[u["user_id"]] = self.count_qualifying_runs(
+                cursor, u["group_id"], semester, u["user_id"], scoring_week
+            ) if scoring_week else 0
         all_running_points = aggregate("newbie_running_points", [], [], "SUM(points)", "s")
         all_training = aggregate("newbie_training_records", [], [], "COUNT(*)", "c")
 
@@ -1163,56 +1085,9 @@ class NewbieMixin:
             yield self.reply_result(event, node)
             return
 
-        rule, stage, days_to_next_stage = self.get_running_rule(user["gender"], user["points_started_at"], running_time)
-        if rule is None:
-            conn.close()
-            node = Node(
-                uin=0,
-                name="柏柏子",
-                content=[Plain("❌ 该成员尚未开始积分，无法计算撤销后的阶段规则。")]
-            )
-            yield self.reply_result(event, node)
-            return
-
-        week_start, week_number = self.get_program_week(user["points_started_at"], running_time)
-        if week_start is None:
-            conn.close()
-            node = Node(
-                uin=0,
-                name="柏柏子",
-                content=[Plain("❌ 该成员尚未开始积分，无法计算撤销后的阶段规则。")]
-            )
-            yield self.reply_result(event, node)
-            return
-        week_end = week_start + timedelta(days=7)
-        cursor.execute("""
-        SELECT COUNT(*) AS count FROM newbie_running_records
-        WHERE group_id = ? AND semester = ? AND user_id = ? AND created_at >= ? AND created_at < ?
-        """, (group_id, "2026_fall", target_user_id, week_start.isoformat(), week_end.isoformat()))
-        weekly_count = cursor.fetchone()["count"]
-
-        year = week_start.year
-        week = week_number
-
-        if weekly_count >= rule["point2"]:
-            new_week_points = 2
-        elif weekly_count >= rule["point1"]:
-            new_week_points = 1
-        else:
-            new_week_points = 0
-
-        if new_week_points == 0:
-            cursor.execute("""
-            DELETE FROM newbie_running_points
-            WHERE group_id = ? AND semester = ? AND user_id = ? AND year = ? AND week = ?
-            """, (group_id, "2026_fall", target_user_id, year, week))
-        else:
-            cursor.execute("""
-            INSERT INTO newbie_running_points (group_id, semester, user_id, year, week, month, points, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(group_id, semester, user_id, year, week)
-            DO UPDATE SET points = excluded.points, created_at = excluded.created_at
-            """, (group_id, "2026_fall", target_user_id, year, week, week_start.month, new_week_points, datetime.now().isoformat()))
+        weekly_count, _, _ = self.update_week_points(
+            cursor, user, group_id, "2026_fall", target_user_id, running_time
+        )
         conn.commit()
         after_stats = self.get_user_stats(group_id, target_user_id)
         point_change = after_stats["total_points"] - before_stats["total_points"]

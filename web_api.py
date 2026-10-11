@@ -925,7 +925,7 @@ class WebApiMixin:
         if group_id:
             where += " AND group_id = ?"
             params.append(group_id)
-        cursor.execute(f"SELECT group_id, semester, user_id, nickname, gender, points_started_at FROM newbie_users {where}", params)
+        cursor.execute(f"SELECT group_id, semester, user_id, nickname, gender, points_started, points_started_at FROM newbie_users {where}", params)
         users = {(str(r["group_id"]), str(r["semester"]), str(r["user_id"])): r for r in cursor.fetchall()}
 
         run_totals = {}
@@ -943,12 +943,11 @@ class WebApiMixin:
                 run_time = datetime.fromisoformat(run["created_at"])
             except (TypeError, ValueError):
                 continue
-            week_start, week_number = self.get_program_week(user["points_started_at"], run_time)
-            if week_start is None or week_number < 1:
+            scoring_week = self.get_scoring_week(user, run_time)
+            if scoring_week is None:
                 continue
-            rule_info = self.get_running_rule(user["gender"], user["points_started_at"], week_start + timedelta(days=3))
-            rule = rule_info[0] if rule_info else None
-            if rule is None or _float(run["distance"]) < rule["distance"]:
+            week_start, _, week_number, rule = scoring_week
+            if _float(run["distance"]) < rule["distance"]:
                 continue
             key = user_key + (week_start.year, week_number)
             qualifying_counts[key] = qualifying_counts.get(key, 0) + 1
@@ -958,7 +957,7 @@ class WebApiMixin:
         expected = {}
         for key, count in qualifying_counts.items():
             rule = week_rules[key]
-            points = 2 if count >= rule["point2"] else (1 if count >= rule["point1"] else 0)
+            points = self.points_for_count(count, rule)
             if points:
                 g, semester, user_id, year, week = key
                 expected[key] = {
