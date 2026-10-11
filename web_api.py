@@ -6,6 +6,11 @@ from datetime import datetime, timedelta
 from astrbot.api.web import json_response, request
 
 
+MAX_IMPORT_CHARS = 2_000_000
+MAX_IMPORT_ROWS = 10_000
+MAX_IMPORT_ERRORS = 100
+
+
 def _int(value, default=0):
     try:
         return int(value)
@@ -266,7 +271,7 @@ class WebApiMixin:
         conn = self.get_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT group_id FROM running_records")
-        for row in cursor.fetchall():
+        for row in cursor:
             if row[0]:
                 groups.add(str(row[0]))
         conn.close()
@@ -275,7 +280,7 @@ class WebApiMixin:
         nc = nb.cursor()
         for table in ["newbie_users", "newbies_admins", "newbie_running_points", "newbie_training_records"]:
             nc.execute(f"SELECT DISTINCT group_id FROM {table}")
-            for row in nc.fetchall():
+            for row in nc:
                 if row["group_id"]:
                     groups.add(str(row["group_id"]))
         nb.close()
@@ -322,7 +327,7 @@ class WebApiMixin:
             """,
             (kw,),
         )
-        for row in nc.fetchall():
+        for row in nc:
             key = (str(row["group_id"]), str(row["user_id"]))
             if key not in results:
                 results[key] = {
@@ -452,12 +457,22 @@ class WebApiMixin:
         label_to_key = {c["label"]: c["key"] for c in spec["columns"]}
         key_set = {c["key"] for c in spec["columns"]}
 
-        text = (csv_text or "").lstrip("﻿")
-        lines = list(csv.reader(io.StringIO(text)))
-        if not lines:
+        if not isinstance(csv_text, str) or len(csv_text) > MAX_IMPORT_CHARS:
+            return {"success": 0, "failed": 1, "errors": [{"line": 0, "reason": "CSV 过大，请拆分为每份不超过 200 万字符、1 万行后导入"}]}
+        text = csv_text.lstrip("﻿")
+        # 先流式校验，避免超限或格式错误时已写入部分记录。
+        try:
+            for index, _ in enumerate(csv.reader(io.StringIO(text))):
+                if index > MAX_IMPORT_ROWS:
+                    return {"success": 0, "failed": 1, "errors": [{"line": 0, "reason": "CSV 超过 1 万行，请拆分后导入"}]}
+        except csv.Error as exc:
+            return {"success": 0, "failed": 1, "errors": [{"line": 0, "reason": f"CSV 格式错误：{exc}"}]}
+        lines = csv.reader(io.StringIO(text))
+        first_row = next(lines, None)
+        if first_row is None:
             return {"success": 0, "failed": 0, "errors": []}
 
-        header = [str(h).strip() for h in lines[0]]
+        header = [str(h).strip() for h in first_row]
         col_keys = []
         for h in header:
             if h in label_to_key:
@@ -476,7 +491,7 @@ class WebApiMixin:
         errors = []
         recompute = {}  # (group_id, semester, user_id, year, week) -> 参考时间
         mirror_rows = []  # 新手跑步导入后需要镜像到主排行榜的行
-        for idx, raw in enumerate(lines[1:], start=2):
+        for idx, raw in enumerate(lines, start=2):
             if not raw or all(str(c).strip() == "" for c in raw):
                 continue
             row = {}
@@ -488,7 +503,8 @@ class WebApiMixin:
             result = self._insert_import_row(cursor, spec, row, now)
             if isinstance(result, str):
                 failed += 1
-                errors.append({"line": idx, "reason": result})
+                if len(errors) < MAX_IMPORT_ERRORS:
+                    errors.append({"line": idx, "reason": result})
                 continue
 
             success += 1
@@ -519,7 +535,7 @@ class WebApiMixin:
         for (group_id, semester, user_id, _y, _w), ref in recompute.items():
             self.recompute_week_points(group_id, semester, user_id, ref)
 
-        return {"success": success, "failed": failed, "errors": errors}
+        return {"success": success, "failed": failed, "errors": errors, "errors_truncated": failed > len(errors)}
 
     async def _api_import_template(self):
         table = _str(request.query.get("table"))
@@ -919,84 +935,93 @@ class WebApiMixin:
     def _calculate_newbie_points_rebuild(self, group_id=None):
         """只从用户配置和新手跑步原始记录计算积分，不读取现有积分表。"""
         conn = self.get_newbie_conn()
-        cursor = conn.cursor()
-        where = "WHERE points_started = 1"
-        params = []
-        if group_id:
-            where += " AND group_id = ?"
-            params.append(group_id)
-        cursor.execute(f"SELECT group_id, semester, user_id, nickname, gender, points_started, points_started_at FROM newbie_users {where}", params)
-        users = {(str(r["group_id"]), str(r["semester"]), str(r["user_id"])): r for r in cursor.fetchall()}
+        try:
+            cursor = conn.cursor()
+            where = "WHERE points_started = 1"
+            params = []
+            if group_id:
+                where += " AND group_id = ?"
+                params.append(group_id)
+            cursor.execute(f"SELECT group_id, semester, user_id, nickname, gender, points_started, points_started_at FROM newbie_users {where}", params)
+            users = {(str(r["group_id"]), str(r["semester"]), str(r["user_id"])): r for r in cursor}
 
-        run_totals = {}
-        qualifying_counts = {}
-        week_starts = {}
-        week_rules = {}
-        cursor.execute("SELECT group_id, semester, user_id, distance, created_at FROM newbie_running_records" + (" WHERE group_id = ?" if group_id else ""), ([group_id] if group_id else []))
-        for run in cursor.fetchall():
-            user_key = (str(run["group_id"]), str(run["semester"]), str(run["user_id"]))
-            user = users.get(user_key)
-            if user is None:
-                continue
-            run_totals[user_key] = run_totals.get(user_key, 0) + 1
-            try:
-                run_time = datetime.fromisoformat(run["created_at"])
-            except (TypeError, ValueError):
-                continue
-            scoring_week = self.get_scoring_week(user, run_time)
-            if scoring_week is None:
-                continue
-            week_start, _, week_number, rule = scoring_week
-            if _float(run["distance"]) < rule["distance"]:
-                continue
-            key = user_key + (week_start.year, week_number)
-            qualifying_counts[key] = qualifying_counts.get(key, 0) + 1
-            week_starts[key] = week_start
-            week_rules[key] = rule
+            run_totals = {}
+            qualifying_counts = {}
+            week_starts = {}
+            week_rules = {}
+            cursor.execute("SELECT group_id, semester, user_id, distance, created_at FROM newbie_running_records" + (" WHERE group_id = ?" if group_id else ""), ([group_id] if group_id else []))
+            for run in cursor:
+                user_key = (str(run["group_id"]), str(run["semester"]), str(run["user_id"]))
+                user = users.get(user_key)
+                if user is None:
+                    continue
+                run_totals[user_key] = run_totals.get(user_key, 0) + 1
+                try:
+                    run_time = datetime.fromisoformat(run["created_at"])
+                except (TypeError, ValueError):
+                    continue
+                scoring_week = self.get_scoring_week(user, run_time)
+                if scoring_week is None:
+                    continue
+                week_start, _, week_number, rule = scoring_week
+                if _float(run["distance"]) < rule["distance"]:
+                    continue
+                key = user_key + (week_start.year, week_number)
+                qualifying_counts[key] = qualifying_counts.get(key, 0) + 1
+                week_starts[key] = week_start
+                week_rules[key] = rule
 
-        expected = {}
-        for key, count in qualifying_counts.items():
-            rule = week_rules[key]
-            points = self.points_for_count(count, rule)
-            if points:
-                g, semester, user_id, year, week = key
-                expected[key] = {
-                    "group_id": g, "semester": semester, "user_id": user_id,
-                    "year": year, "week": week, "month": week_starts[key].month,
-                    "points": points,
-                }
+            expected = {}
+            for key, count in qualifying_counts.items():
+                rule = week_rules[key]
+                points = self.points_for_count(count, rule)
+                if points:
+                    g, semester, user_id, year, week = key
+                    expected[key] = {
+                        "group_id": g, "semester": semester, "user_id": user_id,
+                        "year": year, "week": week, "month": week_starts[key].month,
+                        "points": points,
+                    }
 
-        cursor.execute("SELECT group_id, semester, user_id, year, week, points FROM newbie_running_points" + (" WHERE group_id = ?" if group_id else ""), ([group_id] if group_id else []))
-        current = {
-            (str(r["group_id"]), str(r["semester"]), str(r["user_id"]), r["year"], r["week"]): r["points"]
-            for r in cursor.fetchall()
-        }
-        changed_keys = {key for key in set(current) | set(expected) if current.get(key, 0) != expected.get(key, {}).get("points", 0)}
+            cursor.execute("SELECT group_id, semester, user_id, year, week, points FROM newbie_running_points" + (" WHERE group_id = ?" if group_id else ""), ([group_id] if group_id else []))
+            current = {
+                (str(r["group_id"]), str(r["semester"]), str(r["user_id"]), r["year"], r["week"]): r["points"]
+                for r in cursor
+            }
+            changed_keys = {key for key in set(current) | set(expected) if current.get(key, 0) != expected.get(key, {}).get("points", 0)}
 
-        training_totals = {}
-        cursor.execute("SELECT group_id, semester, user_id, COUNT(*) AS count FROM newbie_training_records" + (" WHERE group_id = ?" if group_id else "") + " GROUP BY group_id, semester, user_id", ([group_id] if group_id else []))
-        for r in cursor.fetchall():
-            training_totals[(str(r["group_id"]), str(r["semester"]), str(r["user_id"]))] = r["count"]
+            training_totals = {}
+            cursor.execute("SELECT group_id, semester, user_id, COUNT(*) AS count FROM newbie_training_records" + (" WHERE group_id = ?" if group_id else "") + " GROUP BY group_id, semester, user_id", ([group_id] if group_id else []))
+            for r in cursor:
+                training_totals[(str(r["group_id"]), str(r["semester"]), str(r["user_id"]))] = r["count"]
 
-        changed_users = sorted({key[:3] for key in changed_keys})
-        changes = []
-        for user_key in changed_users:
-            related = [key for key in changed_keys if key[:3] == user_key]
-            user_current_keys = [key for key in current if key[:3] == user_key]
-            user_expected_keys = [key for key in expected if key[:3] == user_key]
-            before = sum(current[key] for key in user_current_keys)
-            after = sum(expected[key]["points"] for key in user_expected_keys)
-            user = users.get(user_key)
-            changes.append({
-                "group_id": user_key[0], "semester": user_key[1], "user_id": user_key[2],
-                "nickname": (user["nickname"] if user else "") or user_key[2],
-                "running_count": run_totals.get(user_key, 0),
-                "training_count": training_totals.get(user_key, 0),
-                "old_points": before, "new_points": after, "point_change": after - before,
-                "changed_weeks": len(related),
-            })
-        conn.close()
-        return expected, changes
+            # 一次聚合，避免为每名用户反复扫描、复制全部周积分键。
+            changed_counts, before_totals, after_totals = {}, {}, {}
+            for key in changed_keys:
+                user_key = key[:3]
+                changed_counts[user_key] = changed_counts.get(user_key, 0) + 1
+            for key, points in current.items():
+                user_key = key[:3]
+                before_totals[user_key] = before_totals.get(user_key, 0) + points
+            for key, row in expected.items():
+                user_key = key[:3]
+                after_totals[user_key] = after_totals.get(user_key, 0) + row["points"]
+            changes = []
+            for user_key in sorted(changed_counts):
+                before = before_totals.get(user_key, 0)
+                after = after_totals.get(user_key, 0)
+                user = users.get(user_key)
+                changes.append({
+                    "group_id": user_key[0], "semester": user_key[1], "user_id": user_key[2],
+                    "nickname": (user["nickname"] if user else "") or user_key[2],
+                    "running_count": run_totals.get(user_key, 0),
+                    "training_count": training_totals.get(user_key, 0),
+                    "old_points": before, "new_points": after, "point_change": after - before,
+                    "changed_weeks": changed_counts[user_key],
+                })
+            return expected, changes
+        finally:
+            conn.close()
 
     async def _api_preview_newbie_points_rebuild(self):
         body = await _read_body()
@@ -1018,7 +1043,7 @@ class WebApiMixin:
             cursor.executemany("""
                 INSERT INTO newbie_running_points (group_id, semester, user_id, year, week, month, points, created_at)
                 VALUES (:group_id, :semester, :user_id, :year, :week, :month, :points, :created_at)
-            """, [dict(row, created_at=_now_iso()) for row in expected.values()])
+            """, (dict(row, created_at=_now_iso()) for row in expected.values()))
             conn.commit()
             count = len(expected)
         except Exception:

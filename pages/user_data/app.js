@@ -495,7 +495,7 @@
       els.importTable.appendChild(opt);
     });
     els.importTable.value = config().endpoint;
-    els.importTip.textContent = "先下载模板，按表头填写（每行一条），再上传导入。";
+    els.importTip.textContent = "先下载模板，按表头填写（每行一条），再上传导入。每次最多 2 MB、1 万条记录。";
     els.importFile.value = "";
     els.importInfo.textContent = "";
     els.importBody.innerHTML = "";
@@ -526,6 +526,10 @@
       toast("请先选择 CSV 文件");
       return;
     }
+    if (file.size > 2_000_000) {
+      toast("CSV 超过 2 MB，请拆分后导入");
+      return;
+    }
     let text;
     try {
       text = await file.text();
@@ -548,7 +552,8 @@
     const success = (data && data.success) || 0;
     const failed = (data && data.failed) || 0;
     const errors = (data && data.errors) || [];
-    els.importInfo.textContent = `成功 ${success} 条 · 失败 ${failed} 条`;
+    els.importInfo.textContent = `成功 ${success} 条 · 失败 ${failed} 条` +
+      (data && data.errors_truncated ? "（仅显示前 100 条错误）" : "");
     els.importBody.innerHTML = "";
     if (errors.length) {
       els.importTableWrap.hidden = false;

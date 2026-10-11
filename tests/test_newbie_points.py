@@ -186,7 +186,10 @@ class PointsTests(unittest.TestCase):
         self.run_record('2026-09-09T15:00:00')
         self.run_record('2026-09-13T12:00:00')
         with patch.object(newbie, 'datetime', Clock):
-            message, _ = asyncio.run(self.plugin.confirm_newbie_running(object(), 4))
+            image = types.SimpleNamespace(convert_to_file_path=AsyncMock())
+            event = types.SimpleNamespace(message_obj=types.SimpleNamespace(message=[image]))
+            message, _ = asyncio.run(self.plugin.confirm_newbie_running(event, 4))
+            image.convert_to_file_path.assert_not_awaited()
             self.assertIn('本周积分：1 分', message)
             self.assertEqual(self.points(), {(2026,1):1})
             self.assert_rebuild_matches()
@@ -196,6 +199,28 @@ class PointsTests(unittest.TestCase):
             message, _ = asyncio.run(self.plugin.confirm_newbie_running(object(), 4))
             self.assertIn('未达标', message)
             self.assertEqual(len(self.execute('SELECT * FROM newbie_running_records')), 3)
+
+    def test_import_limits_reject_before_inserting(self):
+        header = 'group_id,semester,user_id,distance,created_at\n'
+        row = 'g,2026_fall,u,4,2026-09-10T12:00:00\n'
+        result = self.plugin._import_table('newbie_running_records', header + row * 10001)
+        self.assertEqual(result['success'], 0)
+        self.assertEqual(len(self.execute('SELECT * FROM newbie_running_records')), 0)
+        result = self.plugin._import_table('newbie_running_records', 'x' * 2000001)
+        self.assertEqual(result['success'], 0)
+        self.assertIn('过大', result['errors'][0]['reason'])
+
+    def test_streamed_csv_import_preserves_points_and_mirror(self):
+        header = 'group_id,semester,user_id,distance,created_at\n'
+        csv_text = header + ''.join(f'g,2026_fall,u,4,2026-09-{day}T12:00:00\n' for day in [10,13,20])
+        mirrored = []
+        self.plugin._mirror_newbie_running_to_main = mirrored.extend
+        result = self.plugin._import_table('newbie_running_records', csv_text)
+        self.assertEqual(result['success'], 3)
+        self.assertEqual(result['failed'], 0)
+        self.assertEqual(len(mirrored), 3)
+        self.assertEqual(self.points(), {(2026,1):1})
+        self.assert_rebuild_matches()
 
     def test_unstarted_and_invalid_start(self):
         for start in [None, '', 'invalid', '2026-09-10T00:00:00']:

@@ -4,9 +4,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple
 
-from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
-import astrbot.api.message_components as Comp
 from astrbot.api.message_components import Node, Plain
 
 from .identity import SUPER_ADMINS
@@ -475,26 +473,8 @@ class NewbieMixin:
             conn.close()
             return f"❌ 当前阶段每次至少 {rule['distance']}km，本次距离未达标。", ""
 
-        # 证明图片不落盘服务器，只取 AstrBot 自己的临时文件路径供后续 LLM 分析
+        # 当前仅检查消息含图片，不下载原图；未启用图片内容分析。
         source_path = None
-        try:
-            message_obj = getattr(event, "message_obj", None)
-            message_chain = getattr(message_obj, "message", None)
-            image_component = None
-
-            if message_chain:
-                for component in message_chain:
-                    if isinstance(component, Comp.Image):
-                        image_component = component
-                        break
-
-            if image_component is not None:
-                try:
-                    source_path = await image_component.convert_to_file_path()
-                except Exception as e:
-                    logger.error("[RunningRank] 获取新手任务图片失败: %s", e)
-        except Exception as e:
-            logger.warning("[RunningRank] 处理新手任务图片证明失败: %s", e)
 
         cursor.execute("""
         INSERT INTO newbie_running_records (group_id, semester, user_id, distance, created_at)
