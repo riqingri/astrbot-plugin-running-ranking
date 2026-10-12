@@ -222,6 +222,21 @@ class PointsTests(unittest.TestCase):
         self.assertEqual(self.points(), {(2026,1):1})
         self.assert_rebuild_matches()
 
+    def test_five_two_point_rows_show_ten_on_leaderboard(self):
+        self.execute("UPDATE newbie_users SET group_id='1033668754', user_id='2665256394'")
+        for week in range(1, 6):
+            self.execute(
+                'INSERT INTO newbie_running_points(group_id,semester,user_id,year,week,month,points,created_at) VALUES (?,?,?,?,?,?,?,?)',
+                ('1033668754', '2026_fall', '2665256394', 2026, week, 10 if week == 5 else 9, 2, self.started),
+            )
+        with self.assertLogs(newbie.logger, level='INFO') as logs:
+            board = self.plugin.get_newbie_leaderboard('1033668754', self_user_id='2665256394')
+        self.assertIn('你的排名：第1名 ｜ 积分 10', board)
+        self.assertIn('test ｜ 积分 10', board)
+        self.assertIn('2665256394', logs.output[0])
+        self.assertIn("'跑步积分': 10", logs.output[0])
+        self.assertIn(self.plugin.path, logs.output[0])
+
     def test_unstarted_and_invalid_start(self):
         for start in [None, '', 'invalid', '2026-09-10T00:00:00']:
             self.assertEqual(self.plugin.get_program_week(start,datetime(2026,9,9)), (None,0))

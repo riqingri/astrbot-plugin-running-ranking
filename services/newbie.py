@@ -4,6 +4,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple
 
+from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.message_components import Node, Plain
 
@@ -840,6 +841,13 @@ class NewbieMixin:
             stats = self.get_user_stats(group_id, user["user_id"])
             data.append({"user_id": user["user_id"], "nickname": user["nickname"] or user["user_id"], **stats})
         data.sort(key=lambda x: (-x["total_points"], -x["total_count"]))
+        database_path = conn.execute("PRAGMA database_list").fetchone()["file"]
+        logger.info(
+            "[RunningRank] 新手积分榜统计 | 数据库=%s | 群=%s | 学期=2026_fall | 明细=%s",
+            database_path, group_id,
+            [{"user_id": u["user_id"], "跑步积分": u["running_points"],
+              "训练积分": u["training_points"], "总积分": u["total_points"]} for u in data],
+        )
         conn.close()
         if not data:
             return "暂无已经开始积分的成员。"

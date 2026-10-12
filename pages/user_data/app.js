@@ -306,8 +306,15 @@
     els.nextBtn.disabled = state.offset + state.limit >= state.total;
   }
 
+  let loadSequence = 0;
+
   async function load() {
+    const sequence = ++loadSequence;
     const c = config();
+    renderThead();
+    state.rows = [];
+    state.total = 0;
+    renderBody();
     const params = { limit: state.limit, offset: state.offset };
     const gid = els.groupFilter.value;
     const kw = els.keyword.value.trim();
@@ -316,10 +323,12 @@
 
     try {
       const data = await bridge.apiGet(c.endpoint, params);
+      if (sequence !== loadSequence) return;
       state.rows = (data && data.rows) || [];
       state.total = (data && data.total) || 0;
       renderBody();
     } catch (e) {
+      if (sequence !== loadSequence) return;
       toast("加载失败：" + (e && e.message ? e.message : e));
     }
   }
