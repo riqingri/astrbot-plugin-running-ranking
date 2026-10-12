@@ -89,6 +89,7 @@ class RunningRankPlugin(
 
         self.init_database()
         self.init_newbie_database()
+        self.reconcile_bound_users()
 
         self.command_map = {
             "加入新手任务": "join_newbie",

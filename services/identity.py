@@ -292,32 +292,99 @@ class IdentityMixin:
         conn.close()
         return row["qq_id"] if row else None
 
-    def save_id_mapping(self, openid: str, qq_id: str) -> None:
+    def reconcile_bound_users(self, openid=None, qq_id=None, replace=False):
+        """原子合并绑定双方的历史数据；启动时也修复已有绑定。"""
         conn = self.get_newbie_conn()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT OR IGNORE INTO qq_openid_map (openid, qq_id, created_at)
-            VALUES (?, ?, ?)
-            """,
-            (openid, qq_id, datetime.now().isoformat()),
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute("ATTACH DATABASE ? AS running_db", (self.db_path,))
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.cursor()
+            if openid is not None:
+                action = "REPLACE" if replace else "IGNORE"
+                cursor.execute(
+                    f"INSERT OR {action} INTO qq_openid_map (openid, qq_id, created_at) VALUES (?, ?, ?)",
+                    (openid, qq_id, datetime.now().isoformat()),
+                )
+            mappings = cursor.execute("SELECT openid, qq_id FROM qq_openid_map").fetchall()
+            affected = set()
+            for mapping in mappings:
+                source, target = mapping["openid"], mapping["qq_id"]
+                if source == target:
+                    continue
+                # 跑量原始记录只移动归属，保留每次打卡及其证明。
+                cursor.execute("UPDATE running_db.running_records SET user_id = ? WHERE user_id = ?",
+                               (target, source))
+                for table in ("newbie_users", "newbie_running_records", "newbie_training_records", "newbie_running_points"):
+                    for row in cursor.execute(
+                        f"SELECT DISTINCT group_id, semester FROM {table} WHERE user_id = ?", (source,)
+                    ).fetchall():
+                        affected.add((row["group_id"], row["semester"], target))
+                users = cursor.execute("SELECT * FROM newbie_users WHERE user_id = ?", (source,)).fetchall()
+                for user in users:
+                    key = (user["group_id"], user["semester"], target)
+                    existing = cursor.execute(
+                        "SELECT * FROM newbie_users WHERE group_id = ? AND semester = ? AND user_id = ?", key
+                    ).fetchone()
+                    if existing is None:
+                        cursor.execute(
+                            "UPDATE newbie_users SET user_id = ? WHERE group_id = ? AND semester = ? AND user_id = ?",
+                            (target, *key[:2], source),
+                        )
+                    else:
+                        # QQ 档案优先，保留双方最早的报名及已开始积分时间。
+                        starts = [u["points_started_at"] for u in (existing, user)
+                                  if u["points_started"] and u["points_started_at"]]
+                        cursor.execute("""
+                            UPDATE newbie_users SET nickname = ?, joined_at = ?,
+                                points_started = ?, points_started_at = ?
+                            WHERE group_id = ? AND semester = ? AND user_id = ?
+                        """, (existing["nickname"] or user["nickname"],
+                              min(existing["joined_at"], user["joined_at"]),
+                              int(bool(existing["points_started"] or user["points_started"])),
+                              min(starts) if starts else None, *key))
+                        cursor.execute(
+                            "DELETE FROM newbie_users WHERE group_id = ? AND semester = ? AND user_id = ?",
+                            (*key[:2], source),
+                        )
+                for table in ("newbie_running_records", "newbie_training_records"):
+                    cursor.execute(f"UPDATE {table} SET user_id = ? WHERE user_id = ?", (target, source))
+                # 周积分是派生数据，不能简单相加或忽略唯一键冲突。
+                cursor.execute("DELETE FROM newbie_running_points WHERE user_id = ?", (source,))
+            for key in affected:
+                cursor.execute(
+                    "DELETE FROM newbie_running_points WHERE group_id = ? AND semester = ? AND user_id = ?", key
+                )
+                user = cursor.execute(
+                    "SELECT * FROM newbie_users WHERE group_id = ? AND semester = ? AND user_id = ?", key
+                ).fetchone()
+                if user is None:
+                    continue
+                runs = cursor.execute("""
+                    SELECT created_at FROM newbie_running_records
+                    WHERE group_id = ? AND semester = ? AND user_id = ? ORDER BY created_at
+                """, key).fetchall()
+                weeks = set()
+                for run in runs:
+                    try:
+                        reference = datetime.fromisoformat(run["created_at"])
+                    except (TypeError, ValueError):
+                        continue
+                    scoring_week = self.get_scoring_week(user, reference)
+                    if scoring_week and scoring_week[0] not in weeks:
+                        self.update_week_points(cursor, user, *key, reference)
+                        weeks.add(scoring_week[0])
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def save_id_mapping(self, openid: str, qq_id: str) -> None:
+        self.reconcile_bound_users(openid, qq_id)
 
     def set_id_mapping(self, openid: str, qq_id: str) -> None:
-        """强制写入/覆盖 openid → QQ 号映射（手动绑定用，可纠正错误的自动绑定）。"""
-        conn = self.get_newbie_conn()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO qq_openid_map (openid, qq_id, created_at)
-            VALUES (?, ?, ?)
-            """,
-            (openid, qq_id, datetime.now().isoformat()),
-        )
-        conn.commit()
-        conn.close()
+        self.reconcile_bound_users(openid, qq_id, replace=True)
 
     async def bind_qq(self, event: AstrMessageEvent, argument: str = ""):
         """手动绑定：/绑定 QQ号，把当前 openid 绑定到指定 QQ 号。
@@ -347,7 +414,7 @@ class IdentityMixin:
             content=[Comp.Plain(
                 f"✅ 绑定成功！\n\n"
                 f"openid {openid} → QQ {qq_id}\n\n"
-                f"之后你的跑步/积分都会记到这个 QQ 号名下。"
+                f"历史跑步、训练和积分已合并，之后共用这个 QQ 号的数据。"
             )],
         )
         yield self.reply_result(event, node)
