@@ -90,11 +90,21 @@ class NewbieMixin:
     def count_qualifying_runs(self, cursor, group_id, semester, user_id, scoring_week):
         week_start, week_end, _, rule = scoring_week
         cursor.execute("""
-        SELECT COUNT(*) AS count FROM newbie_running_records
+        SELECT created_at FROM newbie_running_records
         WHERE group_id = ? AND semester = ? AND user_id = ?
-          AND created_at >= ? AND created_at < ? AND distance >= ?
-        """, (group_id, semester, user_id, week_start.isoformat(), week_end.isoformat(), rule["distance"]))
-        return cursor.fetchone()["count"]
+          AND distance >= ?
+        """, (group_id, semester, user_id, rule["distance"]))
+        # 与后台重算一样按实际时间比较，兼容历史记录的空格/T 分隔符，
+        # 并保留报名时刻的微秒精度及周区间的左闭右开边界。
+        count = 0
+        for run in cursor:
+            try:
+                run_time = datetime.fromisoformat(run["created_at"])
+            except (TypeError, ValueError):
+                continue
+            if week_start <= run_time < week_end:
+                count += 1
+        return count
 
     def update_week_points(self, cursor, user, group_id, semester, user_id, reference_time):
         """日常确认、撤销和后台重算共用同一计分实现，返回次数、积分和变化量。"""

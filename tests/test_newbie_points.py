@@ -165,7 +165,7 @@ class PointsTests(unittest.TestCase):
         self.assertEqual(self.points(),{(2026,1):1})
         self.assert_rebuild_matches()
 
-    def test_photo_confirmation_rechecks_stage_and_matches_rebuild(self):
+    def prepare_photo_confirmation(self):
         main_path = str(Path(self.tmp.name) / 'main.db')
         conn = sqlite3.connect(main_path)
         conn.execute('CREATE TABLE running_records (user_id TEXT, user_name TEXT, group_id TEXT, distance REAL, run_time TEXT, created_at TEXT)')
@@ -175,6 +175,48 @@ class PointsTests(unittest.TestCase):
         self.plugin.get_user_id = lambda event: 'u'
         self.plugin.get_user_info = lambda event: ('u', 'test')
         self.plugin.get_display_name = lambda event, name: name
+
+    def test_fourth_run_reply_with_legacy_timestamp_format(self):
+        self.prepare_photo_confirmation()
+        for hour in [8, 10, 12]:
+            self.run_record(f'2026-09-21 {hour:02d}:00:00')
+        # The points page/rebuild already recognizes all three historical runs.
+        with patch.object(web, '_read_body', AsyncMock(return_value={'group_id': 'g'})):
+            asyncio.run(self.plugin._api_apply_newbie_points_rebuild())
+        self.assertEqual(self.points(), {(2026, 2): 1})
+
+        with patch.object(newbie, 'datetime', wraps=datetime) as clock:
+            clock.now.return_value = datetime(2026, 9, 21, 18)
+            message, _ = asyncio.run(self.plugin.confirm_newbie_running(object(), 4.02))
+        self.assertIn('本周完成：4 次', message)
+        self.assertIn('本周积分：2 分', message)
+        self.assertIn('本次积分变化：+1', message)
+        self.assertIn('本周最高积分已完成', message)
+        self.assertEqual(self.points(), {(2026, 2): 2})
+        self.assert_rebuild_matches()
+
+    def test_mixed_timestamp_week_boundaries(self):
+        for when in ['2026-09-21 00:00:00', '2026-09-23T12:00:00',
+                     '2026-09-27 23:59:59.999999', '2026-09-28 00:00:00',
+                     '2026-09-28 12:00:00',
+                     '2026-09-20T23:59:59.999999', 'invalid']:
+            self.run_record(when)
+        self.recompute('2026-09-23T12:00:00')
+        self.assertEqual(self.points(), {(2026, 2): 1})
+        self.assert_rebuild_matches()
+
+    def test_mixed_timestamp_enrollment_boundary(self):
+        self.execute('UPDATE newbie_users SET points_started_at=?',
+                     ('2026-09-09T15:00:00.123456',))
+        for when in ['2026-09-09 15:00:00.123455', '2026-09-09 15:00:00.123456',
+                     '2026-09-09T16:00:00', '2026-09-10 12:00:00']:
+            self.run_record(when)
+        self.recompute('2026-09-10T12:00:00')
+        self.assertEqual(self.points(), {(2026, 1): 1})
+        self.assert_rebuild_matches()
+
+    def test_photo_confirmation_rechecks_stage_and_matches_rebuild(self):
+        self.prepare_photo_confirmation()
 
         class Clock(datetime):
             current = datetime(2026,9,20,12)
