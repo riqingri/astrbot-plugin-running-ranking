@@ -8,6 +8,32 @@ from astrbot.api.message_components import Node, Plain
 class RunningMixin:
     """跑步里程记录与排行榜。"""
 
+    def get_week_distance(self, group_id, user_id, reference_time=None):
+        """按自然周统计个人里程，兼容历史记录的空格和 T 时间格式。"""
+        now = reference_time if reference_time is not None else datetime.now()
+        week_start = (now - timedelta(days=now.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        week_end = week_start + timedelta(days=7)
+        conn = self.get_conn()
+        try:
+            records = conn.execute(
+                "SELECT distance, run_time FROM running_records "
+                "WHERE group_id = ? AND user_id = ?",
+                (group_id, user_id),
+            )
+            total = 0.0
+            for distance, run_time in records:
+                try:
+                    run_time = datetime.fromisoformat(run_time)
+                except (TypeError, ValueError):
+                    continue
+                if week_start <= run_time < week_end:
+                    total += distance
+            return total
+        finally:
+            conn.close()
+
     # =============================================================
     # /跑步
     #
@@ -212,9 +238,7 @@ class RunningMixin:
             today_start
         )
 
-        week_total = query_total(
-            week_start
-        )
+        week_total = self.get_week_distance(group_id, user_id, week_start)
 
         month_total = query_total(
             month_start

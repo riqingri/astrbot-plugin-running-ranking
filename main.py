@@ -429,15 +429,7 @@ class RunningRankPlugin(
             # -----------------------------------------------------
 
             # 只查当前用户，避免每次打卡都加载和排序全群排行榜。
-            conn = self.get_conn()
-            try:
-                week_total = conn.execute(
-                    "SELECT COALESCE(SUM(distance), 0) FROM running_records "
-                    "WHERE group_id = ? AND user_id = ? AND run_time >= ?",
-                    (group_id, user_id, self.get_week_start().isoformat()),
-                ).fetchone()[0]
-            finally:
-                conn.close()
+            week_total = self.get_week_distance(group_id, user_id, now)
 
             node = Node(
                 uin=0,
